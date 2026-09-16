@@ -1,0 +1,24 @@
+name: vault_export
+description: >-
+  Export pipeline: validation, source resolution, size solver, layout
+  engine, and the export recorder for the dokki vault.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  meta: ^1.17.0
+  vault_domain:
+    path: ../vault_domain
+  vault_imaging:
+    path: ../vault_imaging
+  vault_pdf:
+    path: ../vault_pdf
+  vault_storage:
+    path: ../vault_storage
+
+dev_dependencies:
+  test: ^1.26.3

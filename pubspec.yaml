@@ -1,0 +1,22 @@
+name: dokki_workspace
+description: Privacy-focused document vault — pub workspace root.
+publish_to: none
+environment:
+  sdk: ^3.10.0
+
+workspace:
+  - app
+  - packages/vault_domain
+  - packages/vault_app_core
+  - packages/vault_crypto
+  - packages/vault_persistence
+  - packages/vault_storage
+  - packages/vault_imaging
+  - packages/vault_pdf
+  - packages/vault_export
+  - packages/vault_sync
+  - packages/vault_drive
+  - packages/platform_android
+
+dev_dependencies:
+  test: ^1.26.3

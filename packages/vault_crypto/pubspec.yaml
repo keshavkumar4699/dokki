@@ -1,0 +1,25 @@
+name: vault_crypto
+description: >-
+  Envelope v1 format, KeyManager orchestration, key epochs, and KDF
+  parameter management for the dokki vault.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  collection: ^1.19.1
+  convert: ^3.1.2
+  crypto: ^3.0.7
+  cryptography: ^2.7.0
+  meta: ^1.17.0
+  platform_android:
+    path: ../platform_android
+  typed_data: ^1.4.0
+  vault_domain:
+    path: ../vault_domain
+
+dev_dependencies:
+  test: ^1.26.3

@@ -1,0 +1,55 @@
+/// Public export surface of `vault_domain`.
+///
+/// Everything a dependent package may use lives here. `src/` is private.
+library;
+
+export 'src/assets/asset.dart';
+export 'src/assets/asset_role.dart';
+export 'src/entries/entry_invariants.dart';
+export 'src/entries/entry_type.dart';
+export 'src/entries/entry_type_spec.dart';
+export 'src/entries/entry_type_specs.dart';
+export 'src/entries/vault_entry.dart';
+export 'src/export/export_preset.dart';
+export 'src/export/export_request.dart';
+export 'src/export/export_result.dart';
+export 'src/export/placed_cell.dart';
+export 'src/failures/recovery_action.dart';
+export 'src/failures/vault_failure.dart';
+export 'src/ids.dart';
+export 'src/imaging/decode_spec.dart';
+export 'src/imaging/geometry.dart';
+export 'src/imaging/image_meta.dart';
+export 'src/imaging/image_op.dart';
+export 'src/logging/vault_log.dart';
+export 'src/ports/blob_store.dart';
+export 'src/ports/clock.dart';
+export 'src/ports/cloud_provider.dart';
+export 'src/ports/crypto_engine.dart';
+export 'src/ports/edge_detector.dart';
+export 'src/ports/entry_repository.dart';
+export 'src/ports/export_engine.dart';
+export 'src/ports/image_processor.dart';
+export 'src/ports/key_epoch_repository.dart';
+export 'src/ports/key_manager.dart';
+export 'src/ports/pdf_composer.dart';
+export 'src/ports/sync_queue_port.dart';
+export 'src/ports/sync_state_repository.dart';
+export 'src/ports/thumbnail_index.dart';
+export 'src/ports/thumbnail_provider.dart';
+export 'src/result.dart';
+export 'src/security/envelope_purpose.dart';
+export 'src/security/key_epoch.dart';
+export 'src/security/lock_state.dart';
+export 'src/security/sensitive_value.dart';
+export 'src/sync/conflict.dart';
+export 'src/sync/hlc.dart';
+export 'src/sync/retry_policy.dart';
+export 'src/sync/sync_op.dart';
+export 'src/sync/tombstone.dart';
+export 'src/versions/asset_version.dart';
+export 'src/versions/edit_recipe.dart';
+export 'src/versions/pin_set.dart';
+export 'src/versions/version_graph.dart';
+export 'src/versions/version_kind.dart';
+export 'src/versions/version_retention_policy.dart';

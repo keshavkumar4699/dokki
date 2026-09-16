@@ -1,0 +1,21 @@
+name: vault_sync
+description: >-
+  Sync engine: queue, scheduler, backoff, HLC, log segments, replay, merge,
+  and conflict detection for the dokki vault. Zero Google dependencies.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  cbor: ^6.2.0
+  meta: ^1.17.0
+  vault_crypto:
+    path: ../vault_crypto
+  vault_domain:
+    path: ../vault_domain
+
+dev_dependencies:
+  test: ^1.26.3

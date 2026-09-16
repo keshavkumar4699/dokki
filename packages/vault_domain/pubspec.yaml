@@ -1,0 +1,17 @@
+name: vault_domain
+description: >-
+  Pure-Dart domain layer for the dokki vault: entities, value objects,
+  policies, ports, and failures. Zero I/O, zero Flutter.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  collection: ^1.19.1
+  meta: ^1.17.0
+
+dev_dependencies:
+  test: ^1.26.3

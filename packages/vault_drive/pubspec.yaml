@@ -1,0 +1,21 @@
+name: vault_drive
+description: >-
+  CloudProvider implementation for Google Drive (drive.appdata scope).
+  The ONLY package in the workspace that knows Google exists.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  google_sign_in: ^6.2.0
+  googleapis: ^13.0.0
+  googleapis_auth: ^1.6.0
+  http: ^1.4.0
+  vault_domain:
+    path: ../vault_domain
+
+dev_dependencies:
+  test: ^1.26.3

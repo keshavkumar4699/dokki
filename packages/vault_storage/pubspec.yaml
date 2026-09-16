@@ -1,0 +1,24 @@
+name: vault_storage
+description: >-
+  Encrypted blob CRUD, atomic writes, temp/GC, and the thumbnail cache for
+  the dokki vault. Never touches the database.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  convert: ^3.1.2
+  crypto: ^3.0.7
+  meta: ^1.17.0
+  path: ^1.9.1
+  vault_crypto:
+    path: ../vault_crypto
+  vault_domain:
+    path: ../vault_domain
+
+dev_dependencies:
+  cryptography: ^2.7.0
+  test: ^1.26.3

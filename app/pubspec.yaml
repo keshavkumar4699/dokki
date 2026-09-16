@@ -1,0 +1,57 @@
+name: dokki
+description: >-
+  Privacy-focused document vault: PHOTO, ID, SIGNATURE, THUMBPRINT, and
+  DOCUMENT entries with client-side encryption and optional Google Drive
+  sync.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.4
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  connectivity_plus: ^6.0.0
+  cross_file: ^0.3.4
+  flutter_riverpod: ^2.6.0
+  go_router: ^14.0.0
+  image_picker: ^1.1.2
+  local_auth: ^2.3.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  sqlcipher_flutter_libs: ^0.6.8
+  sqlite3: ^2.9.1
+  platform_android:
+    path: ../packages/platform_android
+  uuid: ^4.5.1
+  vault_app_core:
+    path: ../packages/vault_app_core
+  vault_crypto:
+    path: ../packages/vault_crypto
+  vault_domain:
+    path: ../packages/vault_domain
+  vault_drive:
+    path: ../packages/vault_drive
+  vault_export:
+    path: ../packages/vault_export
+  vault_imaging:
+    path: ../packages/vault_imaging
+  vault_pdf:
+    path: ../packages/vault_pdf
+  vault_persistence:
+    path: ../packages/vault_persistence
+  vault_storage:
+    path: ../packages/vault_storage
+  vault_sync:
+    path: ../packages/vault_sync
+  workmanager: ^0.8.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: ^1.26.3
+
+flutter:
+  uses-material-design: true

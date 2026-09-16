@@ -1,2 +1,59 @@
 # dokki
-a modern ai document storage system
+
+A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, and `DOCUMENT` entries. Everything is encrypted client-side at rest (SQLCipher database, AES-256-GCM sealed blobs, hardware-backed Android Keystore keys) and optionally synced to the user's own Google Drive in the same encrypted envelope — the cloud never sees plaintext or even semantic metadata. Offline-first, Android-first, Flutter/Dart, designed as a pub workspace of 12 local packages with compiler-enforced boundaries.
+
+## Documentation
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — full technical architecture (v0.1).
+- [THREAT_MODEL.md](docs/THREAT_MODEL.md) — threat table and key hierarchy, extracted from ARCHITECTURE.md §8.7.
+- [adr/](docs/adr/) — architecture decision records 0001–0010, one page each.
+
+## Status
+
+Phases 0–3 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path; Phase 4 is covered by the Dart reference image pipeline:
+
+| Layer | State |
+|---|---|
+| `vault_domain` | Complete: entities, specs, invariants, version graph, retention, ports, sealed failures. 83 tests. |
+| `vault_persistence` | Complete schema (§6) over Drift; partial unique indexes and I3 triggers; `EntryRepository`, `KeyEpochRepository`, `SyncStateRepository`, `ThumbnailIndex`. 28 DB tests incl. constraint rejections. |
+| `vault_crypto` | Envelope v1 cipher (STREAM framing, tamper matrix), `CryptoEngine`, `KeyManagerImpl` over the Keystore bridge, plus the dev-only `DartKeyManager`/`DartEnvelopePrimitive` fallback. 36 tests. |
+| `vault_storage` | `FileBlobStore` (atomic `.part`→rename, fan-out layout, sealed), `KeyringFile` (§7.1, the pre-unlock keyring), `ThumbnailCache` (S/M/L, LRU budget). 16 tests. |
+| `vault_imaging` | `DartImageProcessor` over `package:image` (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). 11 tests. |
+| `vault_app_core` | `UnlockSession` (auto-lock), create/add/reorder/delete, `CommitEdit` (retention + post-commit purge), switch/re-materialize versions. 32 tests. |
+| `platform_android` | Kotlin: Keystore-bound KEK (StrongBox → TEE fallback, auth-bound), Argon2id (argon2kt), HKDF, per-chunk AES-256-GCM session, BiometricPrompt device-credential gate, `FLAG_SECURE`, device-lock probe. **The native imaging channel is still `notImplemented`** (Dart reference processor is used). |
+| `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), settings. 4 widget tests. |
+| `vault_export`, `vault_pdf`, `vault_sync`, `vault_drive` | Skeletons only (Phases 5–7). |
+
+### Security posture of the current build
+
+On a device with a secure lock screen the app uses `KeyManagerImpl` over the Kotlin bridge: a random device secret is sealed by an auth-bound Android Keystore AES-GCM key (`vault.kek.<epoch>`, StrongBox when available), and `KEK = HKDF(device_secret, salt = Argon2id(PIN))` wraps the master key — the PIN is a salt, never the key (§8.2). The recovery passphrase wraps the same master key under Argon2id(m = 256 MiB). SQLCipher is keyed with `K_db = HKDF(MK)` and the open **fails closed** unless `PRAGMA cipher_version` answers. Verified on the API 36 emulator: every blob is an Envelope-v1 file, the database header is ciphertext, and a grep of the app directory for fixture content finds nothing.
+
+The keyring (wrapped keys + KDF parameters) lives in `files/vault/keyring/keyring.json` because it has to be readable *before* the database can be opened; `key_epochs` is a mirror kept for the `blobs.key_epoch` foreign key.
+
+If the Kotlin channel is unavailable (tests, a host without the plugin), the composition root falls back to the dev-only `DartKeyManager` (PIN-derived key in software — architecture mistake M1) and Settings shows a red "Development build: software keys" card. A vault created under one backend is not opened by the other; `wrap_alg` records which one made it. Screenshots are blocked by `FLAG_SECURE` always; debug builds can allow capture for UI review with `adb shell settings put global dokki_allow_capture 1`.
+
+Deviation from §8.3: the Keystore key is auth-bound with a 30 s validity window rather than per-use (`setUserAuthenticationParameters(0, …)`), so one device-credential prompt covers unwrapping every epoch; both factors remain mandatory.
+
+### Deviations from ARCHITECTURE.md
+
+- `assets.current_version_id` has no `REFERENCES` clause: drift's codegen rejects the `assets ↔ asset_versions` cycle. Invariant I3 is enforced by the `trg_assets_current_*` triggers instead, which are stricter (same asset, materialized, not deletable while current).
+- `BlobRef` carries `keyEpoch`, `wrappedDek`, `plaintextSha256`; `NewAsset`/`VersionCommit` carry the `BlobRef` so the `blobs` row is written from real header data in the same transaction.
+- `EnvelopePurpose.meta` (6) added for `title_enc`/`note_enc`/`tags_enc`.
+- `sync_log_ops` table added as the durable pre-seal buffer of the local op log.
+- `ThumbnailIndex` port added so the thumbnail cache never touches the database directly.
+- Sync op-log *emission* from use cases is deferred to Phase 7 along with the engine.
+- The keyring is a JSON file outside the database (see above); the doc's `keyring.bin` sealed copy is the cloud form (Phase 7).
+- `KeyManager.deriveDbKey()` and `importKeyring(pin:)` were added to the port: SQLCipher needs raw bytes, and a bootstrap needs a new PIN to wrap under.
+
+## Development
+
+```powershell
+flutter pub get                                   # at repo root (pub workspace)
+flutter analyze --fatal-infos
+dart run tool/check_boundaries.dart               # forbidden-import CI gate
+cd packages/vault_persistence; dart run build_runner build   # after editing tables/DAOs
+flutter test                                      # per package under packages/, and in app/
+cd app; flutter run                               # Android device or emulator (minSdk 26)
+```
+
+Each package under `packages/` is its own Dart package. Dependency direction is enforced by package `pubspec.yaml` allowlists (compile-time) and the boundary checker in CI.

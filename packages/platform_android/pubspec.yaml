@@ -1,0 +1,27 @@
+name: platform_android
+description: >-
+  Android native bridge for the dokki vault: Keystore, StrongBox, Tink
+  streaming AEAD, Argon2id, image pipeline, FLAG_SECURE, and WorkManager.
+  Zero Dart business logic.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.4
+  flutter: '>=3.3.0'
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.dokki.platform_android
+        pluginClass: PlatformAndroidPlugin

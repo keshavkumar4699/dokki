@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: format + analyze + boundaries + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Resolve workspace
+        run: flutter pub get
+
+      - name: Analyze (fatal-infos)
+        run: flutter analyze --fatal-infos
+
+      - name: Architecture boundary checker
+        run: dart run tool/check_boundaries.dart
+
+      - name: Drift codegen is up to date
+        run: |
+          (cd packages/vault_persistence && dart run build_runner build --delete-conflicting-outputs)
+          git diff --exit-code -- packages/vault_persistence
+
+      - name: Unit + property + widget tests (every package with a test dir)
+        run: |
+          for d in packages/* app; do
+            if [ -d "$d/test" ]; then
+              echo "== $d"
+              (cd "$d" && flutter test --reporter expanded)
+            fi
+          done

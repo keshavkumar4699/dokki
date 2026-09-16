@@ -1,0 +1,23 @@
+name: vault_imaging
+description: >-
+  ImageOp execution, decode specs, and the EdgeDetector for the dokki
+  vault. Native pipeline primary; deterministic Dart reference in tests.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+resolution: workspace
+
+dependencies:
+  image: ^4.5.4
+  meta: ^1.17.0
+  platform_android:
+    path: ../platform_android
+  vault_crypto:
+    path: ../vault_crypto
+  vault_domain:
+    path: ../vault_domain
+
+dev_dependencies:
+  test: ^1.26.3
