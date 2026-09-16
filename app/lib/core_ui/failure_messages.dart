@@ -169,7 +169,10 @@ FailureCopy describeFailure(VaultFailure failure) => switch (failure) {
   ),
   AuthenticationFailed(:final attemptsRemaining) => FailureCopy(
     title: 'Wrong PIN',
-    detail: attemptsRemaining == 1
+    // The Keystore backend has no attempt counter; it reports -1.
+    detail: attemptsRemaining < 0
+        ? 'That’s not it. Try again.'
+        : attemptsRemaining == 1
         ? '1 attempt left before a cool-down.'
         : '$attemptsRemaining attempts left.',
   ),

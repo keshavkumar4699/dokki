@@ -8,12 +8,32 @@ import 'package:vault_domain/vault_domain.dart';
 
 /// Which crypto backend the composition root selected.
 enum CryptoBackend {
-  /// Kotlin + Keystore + Tink (§8). Not yet implemented natively.
+  /// Kotlin + Keystore (§8): auth-bound KEK, Argon2id, AES-GCM session.
   native,
 
   /// Pure Dart, keys in the heap, PIN-derived (M1). Development only.
   softwareDev,
 }
+
+/// A plaintext copy of an export artifact in the share cache, alive only
+/// until [discard] runs (§7.1 "export output").
+final class ShareHandle {
+  const ShareHandle({
+    required this.path,
+    required this.mimeType,
+    required this.fileName,
+    required this.discard,
+  });
+
+  final String path;
+  final String mimeType;
+  final String fileName;
+  final Future<void> Function() discard;
+}
+
+/// Decrypts an export's artifact for the system share sheet.
+typedef PrepareShare =
+    Future<Result<ShareHandle, VaultFailure>> Function(ExportId exportId);
 
 final class AppGraph {
   const AppGraph({
@@ -29,6 +49,8 @@ final class AppGraph {
     required this.switchVersion,
     required this.thumbnails,
     required this.blobStore,
+    required this.exports,
+    required this.prepareShare,
   });
 
   final VaultContext context;
@@ -46,4 +68,7 @@ final class AppGraph {
   /// Exposed only for the thumbnail bridge (`readSmall` of ≤1024 px
   /// previews). Widgets never call `write` or `openRead`.
   final BlobStore blobStore;
+
+  final ExportUseCases exports;
+  final PrepareShare prepareShare;
 }

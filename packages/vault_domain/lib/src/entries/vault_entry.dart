@@ -114,6 +114,7 @@ final class VaultEntrySummary {
     required this.updatedAt,
     required this.assetCount,
     required this.hasOpenConflict,
+    required this.coverVersionId,
   });
 
   final EntryId id;
@@ -123,4 +124,9 @@ final class VaultEntrySummary {
   final DateTime updatedAt;
   final int assetCount;
   final bool hasOpenConflict;
+
+  /// The current version of the first live asset (lowest ordinal), so a
+  /// list can show a thumbnail without loading the aggregate. `null` only
+  /// for an entry whose every asset is deleted.
+  final VersionId? coverVersionId;
 }

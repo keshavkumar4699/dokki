@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:vault_domain/vault_domain.dart';
 
+import '../motion.dart';
 import '../tokens.dart';
 
 /// A compact pill naming the entry type with its icon and hue.
@@ -77,29 +78,41 @@ class EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainer,
-                  shape: BoxShape.circle,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(DokkiSpace.xl),
-                  child: Icon(icon, size: 40, color: scheme.onSurfaceVariant),
+              PopIn(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(DokkiSpace.xl),
+                    child: Icon(icon, size: 40, color: scheme.onSurfaceVariant),
+                  ),
                 ),
               ),
               const SizedBox(height: DokkiSpace.xl),
-              Text(title, style: text.titleLarge, textAlign: TextAlign.center),
-              const SizedBox(height: DokkiSpace.sm),
-              Text(
-                message,
-                style: text.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              FadeSlideIn.staggered(
+                1,
+                child: Text(
+                  title,
+                  style: text.titleLarge,
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: DokkiSpace.sm),
+              FadeSlideIn.staggered(
+                2,
+                child: Text(
+                  message,
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
               if (action != null) ...[
                 const SizedBox(height: DokkiSpace.xl),
-                action!,
+                FadeSlideIn.staggered(3, child: action!),
               ],
             ],
           ),

@@ -15,6 +15,7 @@ import '../features/onboarding/onboarding_flow.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/vault_list/vault_home_screen.dart';
 import 'routes.dart';
+import 'transitions.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _LockRefresh(ref);
@@ -23,8 +24,15 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: Routes.vault,
     refreshListenable: refresh,
     redirect: (context, state) {
-      final hasVault = ref.read(hasVaultProvider);
-      final unlocked = ref.read(isUnlockedProvider);
+      // Read the session directly, not through a derived provider: this
+      // runs synchronously inside listener callbacks (the lock listener
+      // clears `openVaultProvider`, which refreshes the router), and
+      // Riverpod notifies `ref.listen` callbacks *before* it invalidates
+      // providers that `watch` the same source. A derived provider would
+      // still answer "unlocked" here for one turn.
+      final session = ref.read(sessionProvider);
+      final hasVault = session.hasVault;
+      final unlocked = session.isUnlocked;
       final opened = ref.read(openVaultProvider) != null;
       final at = state.matchedLocation;
       if (!hasVault) {
@@ -44,15 +52,27 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // The gate screens and the vault root fade through each other: they
+      // are states, not places, so there is no direction to slide in.
       GoRoute(
         path: Routes.onboarding,
-        builder: (_, _) => const OnboardingFlow(),
+        pageBuilder: (_, state) =>
+            FadeThroughPage(key: state.pageKey, child: const OnboardingFlow()),
       ),
-      GoRoute(path: Routes.unlock, builder: (_, _) => const UnlockScreen()),
-      GoRoute(path: Routes.opening, builder: (_, _) => const OpeningScreen()),
+      GoRoute(
+        path: Routes.unlock,
+        pageBuilder: (_, state) =>
+            FadeThroughPage(key: state.pageKey, child: const UnlockScreen()),
+      ),
+      GoRoute(
+        path: Routes.opening,
+        pageBuilder: (_, state) =>
+            FadeThroughPage(key: state.pageKey, child: const OpeningScreen()),
+      ),
       GoRoute(
         path: Routes.vault,
-        builder: (_, _) => const VaultHomeScreen(),
+        pageBuilder: (_, state) =>
+            FadeThroughPage(key: state.pageKey, child: const VaultHomeScreen()),
         routes: [
           GoRoute(
             path: 'entry/:id',

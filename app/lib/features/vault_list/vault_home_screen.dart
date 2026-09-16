@@ -1,7 +1,11 @@
 /// The vault: a filterable grid of entries with a single "Add" action.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vault_domain/vault_domain.dart';
@@ -20,163 +24,237 @@ final vaultFilterProvider = StateProvider<EntryType?>((_) => null);
 /// Free-text search over titles; matched client-side on the summary list.
 final vaultSearchProvider = StateProvider<String>((_) => '');
 
-class VaultHomeScreen extends ConsumerWidget {
+class VaultHomeScreen extends ConsumerStatefulWidget {
   const VaultHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VaultHomeScreen> createState() => _VaultHomeScreenState();
+}
+
+class _VaultHomeScreenState extends ConsumerState<VaultHomeScreen> {
+  /// The FAB shrinks to its icon while the user scrolls down through the
+  /// grid and grows back on the way up, so it never covers the last row.
+  bool _fabExtended = true;
+
+  bool _onScroll(UserScrollNotification notification) {
+    final extended = switch (notification.direction) {
+      ScrollDirection.reverse => false,
+      ScrollDirection.forward => true,
+      ScrollDirection.idle => _fabExtended,
+    };
+    if (extended != _fabExtended) {
+      setState(() => _fabExtended = extended);
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final filter = ref.watch(vaultFilterProvider);
     final search = ref.watch(vaultSearchProvider).trim().toLowerCase();
     final entries = ref.watch(entriesProvider(filter));
-    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar.large(
-            title: const Text('Vault'),
-            actions: [
-              IconButton(
-                onPressed: () => context.push(Routes.settings),
-                icon: const Icon(Icons.tune_outlined),
-                tooltip: 'Settings',
-              ),
-              IconButton(
-                onPressed: () => ref.read(sessionProvider).lock(),
-                icon: const Icon(Icons.lock_outline),
-                tooltip: 'Lock now',
-              ),
-              const SizedBox(width: DokkiSpace.sm),
-            ],
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                DokkiSpace.lg,
-                0,
-                DokkiSpace.lg,
-                DokkiSpace.sm,
-              ),
-              child: _SearchField(
-                onChanged: (v) =>
-                    ref.read(vaultSearchProvider.notifier).state = v,
-              ),
+      body: NotificationListener<UserScrollNotification>(
+        onNotification: _onScroll,
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar.large(
+              title: const Text('Vault'),
+              actions: [
+                IconButton(
+                  onPressed: () => context.push(Routes.settings),
+                  icon: const Icon(Icons.tune_outlined),
+                  tooltip: 'Settings',
+                ),
+                IconButton(
+                  onPressed: () => ref.read(sessionProvider).lock(),
+                  icon: const Icon(Icons.lock_outline),
+                  tooltip: 'Lock now',
+                ),
+                const SizedBox(width: DokkiSpace.sm),
+              ],
             ),
-          ),
-          const SliverToBoxAdapter(child: _TypeFilterBar()),
-          entries.when(
-            data: (items) {
-              final visible = search.isEmpty
-                  ? items
-                  : items
-                        .where(
-                          (e) => (e.title ?? '').toLowerCase().contains(search),
-                        )
-                        .toList();
-              if (visible.isEmpty) {
-                return SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: items.isEmpty
-                      ? EmptyState(
-                          icon: filter == null
-                              ? Icons.inventory_2_outlined
-                              : EntryTypeStyle.of(filter).icon,
-                          title: filter == null
-                              ? 'Your vault is empty'
-                              : 'No ${EntryTypeStyle.of(filter).pluralLabel.toLowerCase()} yet',
-                          message: filter == null
-                              ? 'Add a photo, an ID, a signature, a thumbprint or a document. Everything is encrypted the moment it arrives.'
-                              : EntryTypeStyle.of(filter).hint,
-                          action: FilledButton.icon(
-                            onPressed: () =>
-                                showAddEntrySheet(context, preselected: filter),
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add'),
-                          ),
-                        )
-                      : const EmptyState(
-                          icon: Icons.search_off,
-                          title: 'No matches',
-                          message: 'Try a different search.',
-                        ),
-                );
-              }
-              return SliverPadding(
+            SliverToBoxAdapter(
+              child: Padding(
                 padding: const EdgeInsets.fromLTRB(
                   DokkiSpace.lg,
-                  DokkiSpace.sm,
+                  0,
                   DokkiSpace.lg,
-                  96,
+                  DokkiSpace.sm,
                 ),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 220,
-                    mainAxisSpacing: DokkiSpace.md,
-                    crossAxisSpacing: DokkiSpace.md,
-                    childAspectRatio: 0.78,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => EntryCard(
-                      summary: visible[index],
-                      onTap: () =>
-                          context.push(Routes.entry(visible[index].id)),
-                    ),
-                    childCount: visible.length,
-                  ),
-                ),
-              );
-            },
-            loading: () => const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (error, _) => SliverFillRemaining(
-              hasScrollBody: false,
-              child: EmptyState(
-                icon: Icons.error_outline,
-                title: describeError(error).title,
-                message: describeError(error).detail,
-                action: OutlinedButton(
-                  onPressed: () => ref.invalidate(entriesProvider),
-                  child: const Text('Retry'),
+                child: _SearchField(
+                  onChanged: (v) =>
+                      ref.read(vaultSearchProvider.notifier).state = v,
                 ),
               ),
             ),
-          ),
-        ],
+            const SliverToBoxAdapter(child: _TypeFilterBar()),
+            entries.when(
+              data: (items) {
+                final visible = search.isEmpty
+                    ? items
+                    : items
+                          .where(
+                            (e) =>
+                                (e.title ?? '').toLowerCase().contains(search),
+                          )
+                          .toList();
+                if (visible.isEmpty) {
+                  return SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: items.isEmpty
+                        ? EmptyState(
+                            key: ValueKey(filter),
+                            icon: filter == null
+                                ? Icons.inventory_2_outlined
+                                : EntryTypeStyle.of(filter).icon,
+                            title: filter == null
+                                ? 'Your vault is empty'
+                                : 'No ${EntryTypeStyle.of(filter).pluralLabel.toLowerCase()} yet',
+                            message: filter == null
+                                ? 'Add a photo, an ID, a signature, a thumbprint or a document. Everything is encrypted the moment it arrives.'
+                                : EntryTypeStyle.of(filter).hint,
+                            action: FilledButton.icon(
+                              onPressed: () => showAddEntrySheet(
+                                context,
+                                preselected: filter,
+                              ),
+                              icon: const Icon(Icons.add),
+                              label: const Text('Add'),
+                            ),
+                          )
+                        : const EmptyState(
+                            icon: Icons.search_off,
+                            title: 'No matches',
+                            message: 'Try a different search.',
+                          ),
+                  );
+                }
+                return SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    DokkiSpace.lg,
+                    DokkiSpace.sm,
+                    DokkiSpace.lg,
+                    96,
+                  ),
+                  // Keyed on the filter so a new selection re-runs the
+                  // tiles' entrance; typing in search does not.
+                  key: ValueKey(filter),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 220,
+                          mainAxisSpacing: DokkiSpace.md,
+                          crossAxisSpacing: DokkiSpace.md,
+                          childAspectRatio: 0.78,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => EntryCard(
+                        key: ValueKey(visible[index].id),
+                        summary: visible[index],
+                        index: index,
+                        onTap: () =>
+                            context.push(Routes.entry(visible[index].id)),
+                      ),
+                      childCount: visible.length,
+                    ),
+                  ),
+                );
+              },
+              loading: () => const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (error, _) => SliverFillRemaining(
+                hasScrollBody: false,
+                child: EmptyState(
+                  icon: Icons.error_outline,
+                  title: describeError(error).title,
+                  message: describeError(error).detail,
+                  action: OutlinedButton(
+                    onPressed: () => ref.invalidate(entriesProvider),
+                    child: const Text('Retry'),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
       // The empty state carries its own CTA; two "Add" buttons is noise.
       floatingActionButton: entries.valueOrNull?.isEmpty ?? true
           ? null
           : FloatingActionButton.extended(
               onPressed: () => showAddEntrySheet(context, preselected: filter),
+              isExtended: _fabExtended,
               icon: const Icon(Icons.add),
               label: const Text('Add'),
-              backgroundColor: scheme.primary,
             ),
     );
   }
 }
 
-class _SearchField extends StatelessWidget {
+class _SearchField extends StatefulWidget {
   const _SearchField({required this.onChanged});
 
   final ValueChanged<String> onChanged;
 
   @override
+  State<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<_SearchField> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _clear() {
+    _controller.clear();
+    widget.onChanged('');
+    setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) => TextField(
-    onChanged: onChanged,
+    controller: _controller,
+    onChanged: (v) {
+      widget.onChanged(v);
+      setState(() {});
+    },
     textInputAction: TextInputAction.search,
-    decoration: const InputDecoration(
+    decoration: InputDecoration(
       hintText: 'Search titles',
-      prefixIcon: Icon(Icons.search),
+      prefixIcon: const Icon(Icons.search),
       isDense: true,
+      suffixIcon: AnimatedSwitcher(
+        duration: DokkiDuration.fast,
+        transitionBuilder: (child, animation) =>
+            ScaleTransition(scale: animation, child: child),
+        child: _controller.text.isEmpty
+            ? const SizedBox.shrink()
+            : IconButton(
+                key: const ValueKey('clear'),
+                onPressed: _clear,
+                icon: const Icon(Icons.close),
+                tooltip: 'Clear',
+              ),
+      ),
     ),
   );
 }
 
 class _TypeFilterBar extends ConsumerWidget {
   const _TypeFilterBar();
+
+  void _select(WidgetRef ref, EntryType? type) {
+    unawaited(HapticFeedback.selectionClick());
+    ref.read(vaultFilterProvider.notifier).state = type;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -194,8 +272,7 @@ class _TypeFilterBar extends ConsumerWidget {
           ChoiceChip(
             label: const Text('All'),
             selected: selected == null,
-            onSelected: (_) =>
-                ref.read(vaultFilterProvider.notifier).state = null,
+            onSelected: (_) => _select(ref, null),
           ),
           for (final type in EntryType.values) ...[
             const SizedBox(width: DokkiSpace.sm),
@@ -209,8 +286,7 @@ class _TypeFilterBar extends ConsumerWidget {
               ),
               label: Text(EntryTypeStyle.of(type).pluralLabel),
               selected: selected == type,
-              onSelected: (_) => ref.read(vaultFilterProvider.notifier).state =
-                  selected == type ? null : type,
+              onSelected: (_) => _select(ref, selected == type ? null : type),
             ),
           ],
         ],

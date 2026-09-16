@@ -11,9 +11,13 @@ abstract interface class ExportEngine {
   /// Runs the full pipeline (§11.3): validate → resolve → decode →
   /// raster → layout → encode → size-solve → seal. Runs entirely off the
   /// platform thread; cancellation is checked between stages.
+  ///
+  /// [retainArtifact] keeps the sealed output past the share (§11.7):
+  /// the record pins its sources and the artifact expires by GC.
   Future<Result<ExportResult, VaultFailure>> run(
     ExportRequest request, {
     ProgressSink? progress,
     CancellationToken? cancel,
+    bool retainArtifact = false,
   });
 }

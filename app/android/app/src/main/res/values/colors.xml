@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors DokkiColors in app/lib/core_ui/tokens.dart. -->
+    <color name="ic_launcher_background">#1B2A4A</color>
+    <color name="dokki_paper">#FAF8F4</color>
+    <color name="dokki_slate">#121417</color>
+</resources>

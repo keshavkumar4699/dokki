@@ -6,38 +6,41 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vault_domain/vault_domain.dart';
 
 import '../../bootstrap/providers.dart';
+import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
 import '../../core_ui/widgets/thumbnail_image.dart';
 
-/// The summary carries no version id, so the card resolves the entry's
-/// first live asset lazily; the grid stays a single cheap query.
-final _coverVersionProvider = FutureProvider.family<VersionId?, EntryId>((
-  ref,
-  id,
-) async {
-  final result = await ref.watch(queriesProvider).entry(id);
-  return result.fold(
-    (entry) => entry.liveAssets.firstOrNull?.currentVersionId,
-    (_) => null,
-  );
-});
+/// Shared by the grid tile and the detail viewer so the cover flies
+/// between them.
+String coverHeroTag(EntryId id) => 'cover-$id';
 
 class EntryCard extends ConsumerWidget {
-  const EntryCard({required this.summary, required this.onTap, super.key});
+  const EntryCard({
+    required this.summary,
+    required this.onTap,
+    this.index = 0,
+    super.key,
+  });
 
   final VaultEntrySummary summary;
   final VoidCallback onTap;
+
+  /// Position in the grid; drives the entrance stagger. Tiles past the
+  /// first screenful appear without one.
+  final int index;
+
+  static const _animatedTiles = 12;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final style = EntryTypeStyle.of(summary.type);
-    final cover = ref.watch(_coverVersionProvider(summary.id));
     final now = ref.read(appGraphProvider).context.now();
+    final cover = summary.coverVersionId;
 
-    return Card(
+    final card = Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -48,13 +51,17 @@ class EntryCard extends ConsumerWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  switch (cover) {
-                    AsyncData(value: final versionId?) => ThumbnailImage(
-                      versionId: versionId,
-                      size: ThumbnailSizeClass.m,
-                      type: summary.type,
-                    ),
-                    _ => ColoredBox(
+                  if (cover != null)
+                    Hero(
+                      tag: coverHeroTag(summary.id),
+                      child: ThumbnailImage(
+                        versionId: cover,
+                        size: ThumbnailSizeClass.m,
+                        type: summary.type,
+                      ),
+                    )
+                  else
+                    ColoredBox(
                       color: style.tintOn(scheme),
                       child: Center(
                         child: Icon(
@@ -64,7 +71,6 @@ class EntryCard extends ConsumerWidget {
                         ),
                       ),
                     ),
-                  },
                   Positioned(
                     left: DokkiSpace.sm,
                     top: DokkiSpace.sm,
@@ -126,6 +132,12 @@ class EntryCard extends ConsumerWidget {
         ),
       ),
     );
+
+    final pressable = PressScale(child: card);
+    if (index >= _animatedTiles) {
+      return pressable;
+    }
+    return FadeSlideIn.staggered(index, child: pressable);
   }
 }
 

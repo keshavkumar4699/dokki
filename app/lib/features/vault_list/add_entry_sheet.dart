@@ -10,6 +10,7 @@ import 'package:vault_domain/vault_domain.dart';
 
 import '../../bootstrap/providers.dart';
 import '../../core_ui/failure_messages.dart';
+import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../routing/routes.dart';
 import '../capture_import/image_source_picker.dart';
@@ -116,42 +117,53 @@ class _AddEntrySheetState extends ConsumerState<_AddEntrySheet> {
             ),
           ),
           const SizedBox(height: DokkiSpace.xl),
-          if (_busy)
-            Column(
-              children: [
-                LinearProgressIndicator(
-                  value: _progress,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                const SizedBox(height: DokkiSpace.md),
-                Text(
-                  'Encrypting and saving…',
-                  style: text.labelLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: _SourceButton(
-                    icon: Icons.photo_camera_outlined,
-                    label: 'Camera',
-                    onTap: () => _capture(CaptureSource.camera),
-                  ),
-                ),
-                const SizedBox(width: DokkiSpace.md),
-                Expanded(
-                  child: _SourceButton(
-                    icon: Icons.photo_library_outlined,
-                    label: 'Gallery',
-                    onTap: () => _capture(CaptureSource.gallery),
-                  ),
-                ),
-              ],
+          // The sheet keeps its footprint while the buttons give way to
+          // the progress bar; the height eases rather than jumps.
+          AnimatedSize(
+            duration: DokkiDuration.normal,
+            curve: DokkiCurves.standard,
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: DokkiDuration.normal,
+              child: _busy
+                  ? Column(
+                      key: const ValueKey('busy'),
+                      children: [
+                        LinearProgressIndicator(
+                          value: _progress,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        const SizedBox(height: DokkiSpace.md),
+                        Text(
+                          'Encrypting and saving…',
+                          style: text.labelLarge?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      key: const ValueKey('sources'),
+                      children: [
+                        Expanded(
+                          child: _SourceButton(
+                            icon: Icons.photo_camera_outlined,
+                            label: 'Camera',
+                            onTap: () => _capture(CaptureSource.camera),
+                          ),
+                        ),
+                        const SizedBox(width: DokkiSpace.md),
+                        Expanded(
+                          child: _SourceButton(
+                            icon: Icons.photo_library_outlined,
+                            label: 'Gallery',
+                            onTap: () => _capture(CaptureSource.gallery),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
+          ),
         ],
       ),
     );
@@ -172,20 +184,22 @@ class _SourceButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(DokkiRadius.card),
-      child: InkWell(
-        onTap: onTap,
+    return PressScale(
+      child: Material(
+        color: scheme.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(DokkiRadius.card),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: DokkiSpace.xl),
-          child: Column(
-            children: [
-              Icon(icon, size: 28, color: scheme.primary),
-              const SizedBox(height: DokkiSpace.sm),
-              Text(label, style: Theme.of(context).textTheme.labelLarge),
-            ],
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(DokkiRadius.card),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: DokkiSpace.xl),
+            child: Column(
+              children: [
+                Icon(icon, size: 28, color: scheme.primary),
+                const SizedBox(height: DokkiSpace.sm),
+                Text(label, style: Theme.of(context).textTheme.labelLarge),
+              ],
+            ),
           ),
         ),
       ),

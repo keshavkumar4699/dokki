@@ -9,6 +9,7 @@ import 'package:vault_domain/vault_domain.dart';
 
 import '../../bootstrap/providers.dart';
 import '../../core_ui/failure_messages.dart';
+import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
 import '../../core_ui/widgets/thumbnail_image.dart';
@@ -88,16 +89,21 @@ class _VersionHistorySheetState extends ConsumerState<_VersionHistorySheet> {
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: DokkiSpace.lg),
-          for (final version in versions)
-            _VersionTile(
-              version: version,
-              isCurrent: version.id == asset.currentVersionId,
-              type: entry!.type,
-              now: now,
-              busy: _switching == version.id,
-              onTap: version.id == asset.currentVersionId || _switching != null
-                  ? null
-                  : () => _switchTo(version),
+          for (var i = 0; i < versions.length; i++)
+            FadeSlideIn.staggered(
+              i,
+              child: _VersionTile(
+                version: versions[i],
+                isCurrent: versions[i].id == asset.currentVersionId,
+                type: entry!.type,
+                now: now,
+                busy: _switching == versions[i].id,
+                onTap:
+                    versions[i].id == asset.currentVersionId ||
+                        _switching != null
+                    ? null
+                    : () => _switchTo(versions[i]),
+              ),
             ),
         ],
       ),
@@ -136,90 +142,95 @@ class _VersionTile extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: DokkiSpace.sm),
-      child: Material(
-        color: isCurrent
-            ? scheme.primaryContainer.withValues(alpha: 0.5)
-            : scheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(DokkiRadius.tile),
-        child: InkWell(
-          onTap: onTap,
+      child: PressScale(
+        enabled: onTap != null,
+        child: Material(
+          color: isCurrent
+              ? scheme.primaryContainer.withValues(alpha: 0.5)
+              : scheme.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(DokkiRadius.tile),
-          child: Padding(
-            padding: const EdgeInsets.all(DokkiSpace.md),
-            child: Row(
-              children: [
-                SizedBox.square(
-                  dimension: 56,
-                  child: version.isMaterialized
-                      ? ThumbnailImage(
-                          versionId: version.id,
-                          size: ThumbnailSizeClass.s,
-                          type: type,
-                          borderRadius: BorderRadius.circular(DokkiRadius.chip),
-                        )
-                      : DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: scheme.surfaceContainer,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(DokkiRadius.tile),
+            child: Padding(
+              padding: const EdgeInsets.all(DokkiSpace.md),
+              child: Row(
+                children: [
+                  SizedBox.square(
+                    dimension: 56,
+                    child: version.isMaterialized
+                        ? ThumbnailImage(
+                            versionId: version.id,
+                            size: ThumbnailSizeClass.s,
+                            type: type,
                             borderRadius: BorderRadius.circular(
                               DokkiRadius.chip,
                             ),
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainer,
+                              borderRadius: BorderRadius.circular(
+                                DokkiRadius.chip,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.auto_fix_high_outlined,
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
-                          child: Icon(
-                            Icons.auto_fix_high_outlined,
+                  ),
+                  const SizedBox(width: DokkiSpace.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: text.titleSmall,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (version.isPinned)
+                              Icon(
+                                Icons.push_pin_outlined,
+                                size: 16,
+                                color: scheme.tertiary,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            'v${version.seq}',
+                            '${version.meta.width}×${version.meta.height}',
+                            relativeTime(version.createdAt, now),
+                            if (status != null) status,
+                          ].join(' · '),
+                          style: text.labelSmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
-                ),
-                const SizedBox(width: DokkiSpace.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              label,
-                              style: text.titleSmall,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (version.isPinned)
-                            Icon(
-                              Icons.push_pin_outlined,
-                              size: 16,
-                              color: scheme.tertiary,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          'v${version.seq}',
-                          '${version.meta.width}×${version.meta.height}',
-                          relativeTime(version.createdAt, now),
-                          if (status != null) status,
-                        ].join(' · '),
-                        style: text.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: DokkiSpace.sm),
-                if (busy)
-                  const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else if (isCurrent)
-                  const SecurityChip('Current', icon: Icons.check)
-                else if (version.isEvicted && !version.canRematerialize)
-                  Icon(Icons.block, color: scheme.outline)
-                else
-                  Icon(Icons.chevron_right, color: scheme.outline),
-              ],
+                  const SizedBox(width: DokkiSpace.sm),
+                  if (busy)
+                    const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else if (isCurrent)
+                    const SecurityChip('Current', icon: Icons.check)
+                  else if (version.isEvicted && !version.canRematerialize)
+                    Icon(Icons.block, color: scheme.outline)
+                  else
+                    Icon(Icons.chevron_right, color: scheme.outline),
+                ],
+              ),
             ),
           ),
         ),

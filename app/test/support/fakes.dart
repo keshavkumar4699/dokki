@@ -270,6 +270,47 @@ final class FakeThumbnailProvider implements ThumbnailProvider {
       const Ok(0);
 }
 
+// ── ExportEngine ────────────────────────────────────────────────────────
+
+/// Records requests and answers a tiny deterministic result; [failWith]
+/// forces the failure path. The real pipeline lives in `vault_export` and
+/// has its own tests — widget tests only need the port's shape.
+final class FakeExportEngine implements ExportEngine {
+  final List<ExportRequest> requests = [];
+  VaultFailure? failWith;
+  int _n = 0;
+
+  @override
+  Future<Result<ExportResult, VaultFailure>> run(
+    ExportRequest request, {
+    ProgressSink? progress,
+    CancellationToken? cancel,
+    bool retainArtifact = false,
+  }) async {
+    requests.add(request);
+    progress?.call(1, 1);
+    final failure = failWith;
+    if (failure != null) {
+      return Err(failure);
+    }
+    final id = 'x${(++_n).toString().padLeft(3, '0')}';
+    return Ok(
+      ExportResult(
+        id: id,
+        artifactBlobId: 'artifact-$id',
+        format: request.format,
+        actualBytes: 1024,
+        outWidth: 100,
+        outHeight: 80,
+        pageCount: 1,
+        appliedQuality: request.quality.quality ?? 85,
+        warnings: const [],
+        duration: Duration.zero,
+      ),
+    );
+  }
+}
+
 // ── KeyManager ──────────────────────────────────────────────────────────
 
 final class FakeKeyManager implements KeyManager {

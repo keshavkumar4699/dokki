@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../bootstrap/providers.dart';
 import '../../core_ui/failure_messages.dart';
+import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
 import '../../core_ui/widgets/pin_pad.dart';
@@ -74,17 +75,24 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
       child: AnimatedSwitcher(
-        duration: DokkiDuration.normal,
-        switchInCurve: Curves.easeOutCubic,
+        duration: DokkiDuration.slow,
+        switchInCurve: DokkiCurves.enter,
+        switchOutCurve: DokkiCurves.exit,
+        // Incoming step slides in from the right; the outgoing one only
+        // fades, so the two never cross each other mid-screen.
         transitionBuilder: (child, animation) => FadeTransition(
           opacity: animation,
           child: SlideTransition(
             position: Tween(
-              begin: const Offset(0.04, 0),
+              begin: const Offset(0.06, 0),
               end: Offset.zero,
             ).animate(animation),
             child: child,
           ),
+        ),
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topCenter,
+          children: [...previous, if (current != null) current],
         ),
         child: KeyedSubtree(key: ValueKey(_step), child: _body()),
       ),
@@ -138,47 +146,67 @@ class _Welcome extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Spacer(),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: scheme.primary,
-              borderRadius: BorderRadius.circular(DokkiRadius.card),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(DokkiSpace.lg),
-              child: Icon(
-                Icons.lock_outline,
-                color: scheme.onPrimary,
-                size: 28,
+          PopIn(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(DokkiRadius.card),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(DokkiSpace.lg),
+                child: Icon(
+                  Icons.lock_outline,
+                  color: scheme.onPrimary,
+                  size: 28,
+                ),
               ),
             ),
           ),
           const SizedBox(height: DokkiSpace.xl),
-          Text('dokki', style: text.displaySmall),
+          FadeSlideIn.staggered(
+            1,
+            child: Text('dokki', style: text.displaySmall),
+          ),
           const SizedBox(height: DokkiSpace.sm),
-          Text(
-            'A vault for the documents you can’t afford to lose or leak.',
-            style: text.titleMedium?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w400,
+          FadeSlideIn.staggered(
+            2,
+            child: Text(
+              'A vault for the documents you can’t afford to lose or leak.',
+              style: text.titleMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w400,
+              ),
             ),
           ),
           const SizedBox(height: DokkiSpace.xl),
-          const _Point(
-            icon: Icons.enhanced_encryption_outlined,
-            text: 'Everything is encrypted before it touches storage.',
+          FadeSlideIn.staggered(
+            4,
+            child: const _Point(
+              icon: Icons.enhanced_encryption_outlined,
+              text: 'Everything is encrypted before it touches storage.',
+            ),
           ),
-          const _Point(
-            icon: Icons.cloud_off_outlined,
-            text: 'Nothing leaves this device unless you turn on sync.',
+          FadeSlideIn.staggered(
+            5,
+            child: const _Point(
+              icon: Icons.cloud_off_outlined,
+              text: 'Nothing leaves this device unless you turn on sync.',
+            ),
           ),
-          const _Point(
-            icon: Icons.key_outlined,
-            text: 'Your keys are yours. dokki cannot read your vault.',
+          FadeSlideIn.staggered(
+            6,
+            child: const _Point(
+              icon: Icons.key_outlined,
+              text: 'Your keys are yours. dokki cannot read your vault.',
+            ),
           ),
           const Spacer(),
-          FilledButton(
-            onPressed: onStart,
-            child: const Text('Create my vault'),
+          FadeSlideIn.staggered(
+            8,
+            child: FilledButton(
+              onPressed: onStart,
+              child: const Text('Create my vault'),
+            ),
           ),
         ],
       ),
@@ -332,7 +360,11 @@ class _PassphraseStep extends StatelessWidget {
                     runSpacing: DokkiSpace.sm,
                     children: [
                       for (var i = 0; i < words.length; i++)
-                        _WordChip(index: i + 1, word: words[i]),
+                        FadeSlideIn.staggered(
+                          i + 2,
+                          offset: const Offset(0, 0.3),
+                          child: _WordChip(index: i + 1, word: words[i]),
+                        ),
                     ],
                   ),
                 ),
@@ -383,12 +415,16 @@ class _PassphraseStep extends StatelessWidget {
               const SizedBox(height: DokkiSpace.xl),
               FilledButton(
                 onPressed: writtenDown && !busy ? onContinue : null,
-                child: busy
-                    ? const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Create vault'),
+                child: AnimatedSwitcher(
+                  duration: DokkiDuration.fast,
+                  child: busy
+                      ? const SizedBox.square(
+                          key: ValueKey('busy'),
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Create vault', key: ValueKey('label')),
+                ),
               ),
               const SizedBox(height: DokkiSpace.xl),
             ],

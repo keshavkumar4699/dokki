@@ -21,6 +21,7 @@ final class EntrySummaryRow {
     required this.updatedAt,
     required this.assetCount,
     required this.hasOpenConflict,
+    required this.coverVersionId,
   });
 
   final String id;
@@ -30,6 +31,7 @@ final class EntrySummaryRow {
   final DateTime updatedAt;
   final int assetCount;
   final bool hasOpenConflict;
+  final String? coverVersionId;
 }
 
 @DriftAccessor(tables: [VaultEntries, Assets])
@@ -58,7 +60,7 @@ class EntriesDao extends DatabaseAccessor<AppDatabase> with _$EntriesDaoMixin {
         vaultEntries.createdAt,
         vaultEntries.updatedAt,
       ])
-      ..addColumns([_liveAssetCount(), _hasOpenConflict()])
+      ..addColumns([_liveAssetCount(), _hasOpenConflict(), _coverVersion()])
       ..orderBy([OrderingTerm.desc(vaultEntries.updatedAt)]);
     if (type != null) {
       query.where(vaultEntries.type.equals(type));
@@ -76,6 +78,7 @@ class EntriesDao extends DatabaseAccessor<AppDatabase> with _$EntriesDaoMixin {
             updatedAt: row.readWithConverter(vaultEntries.updatedAt)!,
             assetCount: row.read(_liveAssetCount())!,
             hasOpenConflict: row.read(_hasOpenConflict())!,
+            coverVersionId: row.read(_coverVersion()),
           ),
         )
         .get();
@@ -143,6 +146,13 @@ class EntriesDao extends DatabaseAccessor<AppDatabase> with _$EntriesDaoMixin {
   Expression<bool> _hasOpenConflict() => const CustomExpression(
     '(EXISTS (SELECT 1 FROM conflicts c '
     'WHERE c.entity_id = vault_entries.id AND c.resolved_at IS NULL))',
+  );
+
+  /// Same ordering as [assetsForEntry], so the cover is `liveAssets.first`.
+  Expression<String> _coverVersion() => const CustomExpression(
+    '(SELECT a.current_version_id FROM assets a '
+    'WHERE a.entry_id = vault_entries.id AND a.deleted_at IS NULL '
+    'ORDER BY a.ordinal ASC, a.created_at ASC LIMIT 1)',
   );
 
   Future<void> insertAsset(AssetsCompanion companion) =>

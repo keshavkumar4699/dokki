@@ -85,6 +85,15 @@ class VersionsDao extends DatabaseAccessor<AppDatabase>
           ))
           .go();
 
+  /// Drops every pin a reference holder (an export, a conflict) placed.
+  Future<void> deletePinsByRef(String reason, String refId) =>
+      (delete(versionPins)
+            ..where((t) => t.reason.equals(reason) & t.refId.equals(refId)))
+          .go();
+
+  Future<void> deleteBlobRow(String id) =>
+      (delete(blobs)..where((t) => t.id.equals(id))).go();
+
   Future<List<VersionPinData>> pinsForVersion(String versionId) =>
       (select(versionPins)..where((t) => t.versionId.equals(versionId))).get();
 

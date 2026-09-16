@@ -80,6 +80,13 @@ final class InMemoryEntryRepository implements EntryRepository {
     return entry.copyWith(assets: assets);
   }
 
+  VersionId? _coverOf(EntryId id) {
+    final live =
+        _assets.values.where((a) => a.entryId == id && a.isLive).toList()
+          ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
+    return live.firstOrNull?.currentVersionId;
+  }
+
   Asset _withVersions(Asset asset) {
     final versions =
         _versions.values
@@ -121,6 +128,7 @@ final class InMemoryEntryRepository implements EntryRepository {
                 .where((a) => a.entryId == e.id && a.isLive)
                 .length,
             hasOpenConflict: false,
+            coverVersionId: _coverOf(e.id),
           ),
         )
         .toList(growable: false);
@@ -458,8 +466,74 @@ final class InMemoryEntryRepository implements EntryRepository {
 
   @override
   Future<Result<void, VaultFailure>> recordExport(ExportRecord record) async {
+    final failed = _maybeFail<void>();
+    if (failed != null) {
+      return failed;
+    }
+    if (record.artifactBlobId != null &&
+        record.artifactBlob?.id != record.artifactBlobId) {
+      return Err(InvalidAsset('export ${record.id} artifact without BlobRef'));
+    }
     _exports[record.id] = record;
+    if (record.retainArtifact && record.artifactBlobId != null) {
+      for (final source in record.sources) {
+        _pins.add(
+          Pin(
+            versionId: source.versionId,
+            reason: PinReason.exportRetained,
+            refId: record.id,
+          ),
+        );
+      }
+    }
+    _touch();
     return const Ok(null);
+  }
+
+  @override
+  Future<Result<List<BlobId>, VaultFailure>> releaseExportArtifacts({
+    required DateTime now,
+  }) async {
+    final purgable = <BlobId>[];
+    for (final record in _exports.values.toList()) {
+      final blobId = record.artifactBlobId;
+      if (blobId == null) {
+        continue;
+      }
+      final expiry = record.artifactExpiresAt;
+      if (record.retainArtifact && expiry != null && expiry.isAfter(now)) {
+        continue;
+      }
+      purgable.add(blobId);
+      _pins.removeWhere(
+        (p) => p.reason == PinReason.exportRetained && p.refId == record.id,
+      );
+      _exports[record.id] = ExportRecord(
+        id: record.id,
+        entryId: record.entryId,
+        request: record.request,
+        format: record.format,
+        status: record.status,
+        createdAt: record.createdAt,
+        originDevice: record.originDevice,
+        layout: record.layout,
+        paperSize: record.paperSize,
+        outWidth: record.outWidth,
+        outHeight: record.outHeight,
+        dpi: record.dpi,
+        quality: record.quality,
+        targetBytes: record.targetBytes,
+        maxBytes: record.maxBytes,
+        actualBytes: record.actualBytes,
+        pageCount: record.pageCount,
+        failureCode: record.failureCode,
+        warningsJson: record.warningsJson,
+        durationMs: record.durationMs,
+        sources: record.sources,
+      );
+    }
+    _touch();
+    return Ok(purgable);
   }
 
   @override

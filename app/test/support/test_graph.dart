@@ -19,6 +19,7 @@ final class TestGraph {
     repo = InMemoryEntryRepository();
     store = InMemoryBlobStore(ids: ids);
     images = FakeImageProcessor(store);
+    exportEngine = FakeExportEngine();
     final context = testContext(ids: ids);
     final importer = AssetImporter(
       context: context,
@@ -38,8 +39,12 @@ final class TestGraph {
       keyManager: keys,
       random: SeededRandom(),
       cryptoBackend: CryptoBackend.softwareDev,
-      openVault: () async => Ok(graph),
-      closeVault: () async {},
+      // Like the real one, opening needs the keys: a locked session must
+      // never be able to "open" the vault by accident.
+      openVault: () async => session.isUnlocked
+          ? Ok(graph)
+          : const Err(KeyUnavailable(KeyUnavailableReason.vaultLocked)),
+      closeVault: () async => closeCount++,
     );
     graph = AppGraph(
       context: context,
@@ -65,6 +70,21 @@ final class TestGraph {
       switchVersion: SwitchCurrentVersionUseCase(services),
       thumbnails: FakeThumbnailProvider(),
       blobStore: store,
+      exports: ExportUseCases(
+        context: context,
+        engine: exportEngine,
+        entries: repo,
+        blobStore: store,
+        presets: builtInExportPresets(),
+      ),
+      prepareShare: (exportId) async => Ok(
+        ShareHandle(
+          path: 'share/$exportId.bin',
+          mimeType: 'application/octet-stream',
+          fileName: 'dokki-$exportId.bin',
+          discard: () async {},
+        ),
+      ),
     );
   }
 
@@ -72,7 +92,11 @@ final class TestGraph {
   late final InMemoryEntryRepository repo;
   late final InMemoryBlobStore store;
   late final FakeImageProcessor images;
+  late final FakeExportEngine exportEngine;
   late final UnlockSession session;
   late final AppGraph graph;
   late final AppBoot boot;
+
+  /// How many times the app closed the vault (on lock).
+  int closeCount = 0;
 }

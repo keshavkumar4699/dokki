@@ -9,8 +9,10 @@ import 'package:vault_domain/vault_domain.dart';
 
 import '../../bootstrap/providers.dart';
 import '../../core_ui/failure_messages.dart';
+import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
+import 'unlock_screen.dart' show LockMark;
 
 class OpeningScreen extends ConsumerStatefulWidget {
   const OpeningScreen({super.key});
@@ -43,15 +45,24 @@ class _OpeningScreenState extends ConsumerState<OpeningScreen> {
   @override
   Widget build(BuildContext context) {
     final failure = _failure;
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: failure == null
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: DokkiSpace.lg),
-                  Text('Opening your vault…'),
+                  const LockMark(verifying: true, unlocked: true),
+                  const SizedBox(height: DokkiSpace.lg),
+                  FadeSlideIn.staggered(
+                    2,
+                    child: Text(
+                      'Opening your vault…',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             )

@@ -70,7 +70,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Your vault is empty'), findsOneWidget);
     await tester.tap(find.byTooltip('Lock now'));
+    // Frame by frame: the router must never route through /opening on the
+    // way to the gate (it would try to reopen a vault whose keys are gone).
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('Opening your vault…'), findsNothing);
+      expect(find.text('Vault is locked'), findsNothing);
+    }
     await tester.pumpAndSettle();
     expect(find.text('Enter your PIN'), findsOneWidget);
+    expect(g.closeCount, 1);
   });
 }

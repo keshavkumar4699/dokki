@@ -174,6 +174,38 @@ final class FileBlobStore implements BlobStore {
     return out.takeBytes();
   });
 
+  /// Decrypts [id] into a plaintext file at [destinationPath] (§7.1 export
+  /// output): the only sanctioned way plaintext reaches disk, and only for
+  /// the share intent, in the cache directory the caller sweeps. Written
+  /// via a `.part` and renamed, so a reader never sees a half file.
+  Future<Result<int, VaultFailure>> copyPlaintextTo(
+    BlobId id,
+    String destinationPath, {
+    CancellationToken? cancel,
+  }) => guardIo('copyPlaintextTo', blobId: id, () async {
+    final located = await _locate(id);
+    if (located == null) {
+      throw StorageException(CorruptFile(id));
+    }
+    final destination = File(destinationPath);
+    await destination.parent.create(recursive: true);
+    final part = File('$destinationPath.part');
+    var written = 0;
+    final sink = part.openWrite();
+    try {
+      await for (final chunk in openPlaintext(located)) {
+        cancel?.throwIfCancelled();
+        sink.add(chunk);
+        written += chunk.length;
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    await part.rename(destinationPath);
+    return written;
+  });
+
   @override
   Future<Result<void, VaultFailure>> verify(BlobId id) =>
       guardIo('verify', blobId: id, () async {

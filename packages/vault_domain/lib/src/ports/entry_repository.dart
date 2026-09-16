@@ -116,6 +116,7 @@ final class ExportRecord {
     this.warningsJson,
     this.durationMs,
     this.artifactBlobId,
+    this.artifactBlob,
     this.retainArtifact = false,
     this.artifactExpiresAt,
     this.sources = const [],
@@ -144,6 +145,11 @@ final class ExportRecord {
   final String? warningsJson;
   final int? durationMs;
   final BlobId? artifactBlobId;
+
+  /// The sealed artifact's reference, required on insert whenever
+  /// [artifactBlobId] is set: its `blobs` row is written in the same
+  /// transaction. Not loaded back.
+  final BlobRef? artifactBlob;
   final bool retainArtifact;
   final DateTime? artifactExpiresAt;
   final DateTime createdAt;
@@ -322,6 +328,14 @@ abstract interface class EntryRepository {
   Future<Result<List<ExportRecordSummary>, VaultFailure>> listExportRecords(
     EntryId entryId,
   );
+
+  /// Artifact GC (§11.7): detaches the artifact from every record that is
+  /// not retained, or whose retention has expired at [now], drops the
+  /// `EXPORT_RETAINED` pins those records held, and returns the blob ids
+  /// the caller must purge from the store. The records themselves stay.
+  Future<Result<List<BlobId>, VaultFailure>> releaseExportArtifacts({
+    required DateTime now,
+  });
 }
 
 /// Convenience builder for an ORIGINAL version from a stored blob.

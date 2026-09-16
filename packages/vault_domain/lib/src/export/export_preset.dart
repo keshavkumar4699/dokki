@@ -14,9 +14,14 @@ final class ExportContext {
   const ExportContext({
     required this.entryType,
     required this.currentVersionIds,
+    required this.source,
   });
 
   final EntryType entryType;
+
+  /// What the caller wants exported (the whole entry, one side, one
+  /// page …). Presets decide format, quality and size, not *what*.
+  final ExportSource source;
 
   /// Current versions, keyed by role DB value (`PRIMARY`, `ID_FRONT`, …).
   final Map<String, String> currentVersionIds;

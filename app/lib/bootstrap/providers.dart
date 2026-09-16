@@ -40,7 +40,8 @@ final lockStateProvider = StreamProvider<LockState>((ref) async* {
   yield* session.states;
 });
 
-/// Synchronous view of the lock state for the router's redirect.
+/// Reactive views of the session flags for widgets that `watch`. The
+/// router's redirect reads the session directly instead (see there).
 final isUnlockedProvider = Provider<bool>((ref) {
   ref.watch(lockStateProvider);
   return ref.watch(sessionProvider).isUnlocked;
@@ -83,6 +84,17 @@ final entryProvider = StreamProvider.family<VaultEntry?, EntryId>((ref, id) {
         ),
       );
 });
+
+/// An entry's export history, newest first. Refreshed by the export
+/// sheet after each run (`ref.invalidate`), disposed with the screen.
+final exportHistoryProvider = FutureProvider.autoDispose
+    .family<List<ExportRecordSummary>, EntryId>((ref, entryId) async {
+      final result = await ref.watch(appGraphProvider).exports.history(entryId);
+      return result.fold(
+        (records) => records,
+        (failure) => throw VaultFailureException(failure),
+      );
+    });
 
 // ── Thumbnails ─────────────────────────────────────────────────────────────
 

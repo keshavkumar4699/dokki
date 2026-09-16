@@ -29,6 +29,7 @@ import 'package:uuid/uuid.dart';
 import 'package:vault_app_core/vault_app_core.dart';
 import 'package:vault_crypto/vault_crypto.dart';
 import 'package:vault_domain/vault_domain.dart';
+import 'package:vault_export/vault_export.dart';
 import 'package:vault_imaging/vault_imaging.dart';
 import 'package:vault_persistence/vault_persistence.dart';
 import 'package:vault_storage/vault_storage.dart';
@@ -97,6 +98,12 @@ Future<AppBoot> composeBoot() async {
   await Directory(filesRoot).create(recursive: true);
   final dbPath = p.join(support.path, 'vault.db');
   open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+  // The one directory that may hold plaintext, only while a share sheet
+  // is up (§7.1). Swept now, on every lock, and after every share.
+  final shareCache = ShareCache(
+    p.join((await getTemporaryDirectory()).path, 'export_tmp'),
+  );
+  await shareCache.sweep();
 
   // ── Keyring: the pre-unlock source of truth for key epochs. ─────────
   final keyring = KeyringFile(rootDir: filesRoot);
@@ -155,6 +162,7 @@ Future<AppBoot> composeBoot() async {
   Future<void> closeVault() async {
     await db?.close();
     db = null;
+    await shareCache.sweep();
   }
 
   Future<Result<AppGraph, VaultFailure>> openVaultUnlogged() async {
@@ -224,6 +232,66 @@ Future<AppBoot> composeBoot() async {
         images: images,
         thumbnails: thumbnails,
       );
+      final exports = ExportUseCases(
+        context: context,
+        engine: ExportEngineImpl(
+          entries: entries,
+          blobStore: blobStore,
+          raster: DartRasterEngine(source: _PlaintextAdapter(blobStore)),
+          resolver: ExportSourceResolverImpl(
+            entries: entries,
+            rematerialize: RematerializeVersionUseCase(versionServices),
+          ),
+          clock: clock,
+          ids: ids,
+          deviceId: deviceId,
+        ),
+        entries: entries,
+        blobStore: blobStore,
+        presets: builtInExportPresets(),
+      );
+      // Artifact GC (§11.7): whatever was not retained, or expired, goes
+      // with this open. Non-fatal — the history rows survive either way.
+      final released = await exports.releaseArtifacts();
+      released.fold((_) {}, (failure) {
+        log.w('export artifact GC skipped [${failure.code}]');
+      });
+
+      Future<Result<ShareHandle, VaultFailure>> prepareShare(
+        ExportId exportId,
+      ) => exports.record(exportId).asyncFlatMap((record) async {
+        final artifact = record?.artifactBlobId;
+        if (record == null || artifact == null) {
+          return const Err(
+            StorageIoFailure('export artifact is no longer available'),
+          );
+        }
+        final format = OutputFormat.fromDbValue(record.format);
+        final extension = switch (format) {
+          OutputFormat.png => 'png',
+          OutputFormat.pdf => 'pdf',
+          OutputFormat.webp => 'webp',
+          OutputFormat.jpeg || null => 'jpg',
+        };
+        final mime = switch (format) {
+          OutputFormat.png => 'image/png',
+          OutputFormat.pdf => 'application/pdf',
+          OutputFormat.webp => 'image/webp',
+          OutputFormat.jpeg || null => 'image/jpeg',
+        };
+        // A neutral name: the receiving app sees no title or path.
+        final fileName = 'dokki-${exportId.substring(0, 8)}.$extension';
+        final path = shareCache.pathFor(fileName);
+        return blobStore.copyPlaintextTo(artifact, path).map(
+          (_) => ShareHandle(
+            path: path,
+            mimeType: mime,
+            fileName: fileName,
+            discard: () async => shareCache.discard(path),
+          ),
+        );
+      });
+
       return Ok(
         AppGraph(
           context: context,
@@ -249,6 +317,8 @@ Future<AppBoot> composeBoot() async {
           switchVersion: SwitchCurrentVersionUseCase(versionServices),
           thumbnails: thumbnails,
           blobStore: blobStore,
+          exports: exports,
+          prepareShare: prepareShare,
         ),
       );
     });

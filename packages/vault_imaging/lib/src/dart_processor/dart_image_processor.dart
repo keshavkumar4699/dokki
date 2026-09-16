@@ -12,13 +12,12 @@
 /// 1000 px preview (§5.3).
 library;
 
-import 'dart:typed_data';
-
 import 'package:image/image.dart' as img;
 import 'package:vault_domain/vault_domain.dart';
 
 import '../error_boundary.dart';
 import '../plaintext_source.dart';
+import 'dart_decode.dart';
 
 final class DartImageProcessor implements ImageProcessor {
   const DartImageProcessor({
@@ -42,7 +41,7 @@ final class DartImageProcessor implements ImageProcessor {
   @override
   Future<Result<ImageInfo, VaultFailure>> inspect(BlobHandle handle) =>
       guardImaging('inspect', () async {
-        final bytes = await _readAll(handle);
+        final bytes = await readAllPlaintext(source, handle);
         final decoder = img.findDecoderForData(bytes);
         if (decoder == null) {
           throw const ImagingException(UnsupportedFormat('unknown'));
@@ -55,7 +54,7 @@ final class DartImageProcessor implements ImageProcessor {
         return ImageInfo(
           width: info.width,
           height: info.height,
-          mime: _mimeOf(decoder),
+          mime: mimeOf(decoder),
         );
       });
 
@@ -161,11 +160,11 @@ final class DartImageProcessor implements ImageProcessor {
                 0,
               ],
             ),
-    ResizeOp(:final width, :final height, :final fit) => _resize(
+    ResizeOp(:final width, :final height, :final fit) => resizeToFit(
       image,
-      width,
-      height,
-      fit,
+      width: width,
+      height: height,
+      fit: fit,
     ),
     FilterOp(:final id) => switch (id) {
       'grayscale' => img.grayscale(image),
@@ -204,87 +203,16 @@ final class DartImageProcessor implements ImageProcessor {
     );
   }
 
-  static img.Image _resize(
-    img.Image image,
-    int? width,
-    int? height,
-    FitMode fit,
-  ) {
-    if (width == null && height == null) {
-      return image;
-    }
-    final aspect = image.width / image.height;
-    final targetW = width ?? (height! * aspect).round();
-    final targetH = height ?? (width! / aspect).round();
-    switch (fit) {
-      case FitMode.stretch:
-        return img.copyResize(image, width: targetW, height: targetH);
-      case FitMode.contain:
-      case FitMode.pad:
-        final scale = _min(targetW / image.width, targetH / image.height);
-        final resized = img.copyResize(
-          image,
-          width: (image.width * scale).round().clamp(1, targetW),
-          height: (image.height * scale).round().clamp(1, targetH),
-        );
-        if (fit == FitMode.contain) {
-          return resized;
-        }
-        final canvas = img.Image(width: targetW, height: targetH)
-          ..clear(img.ColorRgb8(255, 255, 255));
-        return img.compositeImage(
-          canvas,
-          resized,
-          dstX: (targetW - resized.width) ~/ 2,
-          dstY: (targetH - resized.height) ~/ 2,
-        );
-      case FitMode.cover:
-        final scale = _max(targetW / image.width, targetH / image.height);
-        final resized = img.copyResize(
-          image,
-          width: (image.width * scale).ceil(),
-          height: (image.height * scale).ceil(),
-        );
-        return img.copyCrop(
-          resized,
-          x: (resized.width - targetW) ~/ 2,
-          y: (resized.height - targetH) ~/ 2,
-          width: targetW,
-          height: targetH,
-        );
-    }
-  }
-
   // ── Decode / encode ────────────────────────────────────────────────────
 
-  Future<({img.Image image, String mime})> _decode(
+  Future<DecodedSource> _decode(
     BlobHandle handle, {
     CancellationToken? cancel,
-  }) async {
-    final bytes = await _readAll(handle, cancel: cancel);
-    final decoder = img.findDecoderForData(bytes);
-    if (decoder == null) {
-      throw const ImagingException(UnsupportedFormat('unknown'));
-    }
-    final info = decoder.startDecode(bytes);
-    if (info == null) {
-      throw const ImagingException(UnsupportedFormat('undecodable'));
-    }
-    if (info.width * info.height > maxDecodedPixels) {
-      throw ImagingException(
-        ImageProcessingFailed(
-          'decode: ${info.width}x${info.height} exceeds $maxDecodedPixels px',
-        ),
-      );
-    }
-    cancel?.throwIfCancelled();
-    final image = decoder.decode(bytes);
-    if (image == null) {
-      throw const ImagingException(UnsupportedFormat('undecodable'));
-    }
-    // Bake EXIF orientation so every downstream coordinate is upright.
-    return (image: img.bakeOrientation(image), mime: _mimeOf(decoder));
-  }
+  }) async => decodeImageBytes(
+    await readAllPlaintext(source, handle, cancel: cancel),
+    maxDecodedPixels: maxDecodedPixels,
+    cancel: cancel,
+  );
 
   Future<ProcessedImage> _encodeAndStore(
     img.Image image, {
@@ -322,29 +250,4 @@ final class DartImageProcessor implements ImageProcessor {
       ),
     );
   }
-
-  Future<Uint8List> _readAll(
-    BlobHandle handle, {
-    CancellationToken? cancel,
-  }) async {
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in source.openPlaintext(handle)) {
-      cancel?.throwIfCancelled();
-      builder.add(chunk);
-    }
-    return builder.takeBytes();
-  }
-
-  static String _mimeOf(img.Decoder decoder) => switch (decoder) {
-    img.JpegDecoder() => 'image/jpeg',
-    img.PngDecoder() => 'image/png',
-    img.WebPDecoder() => 'image/webp',
-    img.GifDecoder() => 'image/gif',
-    img.BmpDecoder() => 'image/bmp',
-    _ => 'application/octet-stream',
-  };
-
-  static double _min(double a, double b) => a < b ? a : b;
-
-  static double _max(double a, double b) => a > b ? a : b;
 }

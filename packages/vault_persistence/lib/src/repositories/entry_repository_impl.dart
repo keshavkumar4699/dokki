@@ -439,6 +439,22 @@ final class EntryRepositoryImpl implements EntryRepository {
       guardDb(
         'recordExport',
         () => _db.transaction(() async {
+          final artifact = record.artifactBlob;
+          if (record.artifactBlobId != null) {
+            if (artifact == null || artifact.id != record.artifactBlobId) {
+              throw PersistenceException(
+                InvalidAsset(
+                  'export ${record.id} names artifact '
+                  '${record.artifactBlobId} without its BlobRef',
+                ),
+              );
+            }
+            // Artifacts are local: sealed, recorded, never enqueued for
+            // upload (§7.1).
+            await _versions.insertBlob(
+              _blobCompanion(artifact, record.createdAt),
+            );
+          }
           await _exports.insertExportRow(
             ExportRecordsCompanion.insert(
               id: record.id,
@@ -475,9 +491,41 @@ final class EntryRepositoryImpl implements EntryRepository {
                 versionId: source.versionId,
               ),
             );
+            // A retained artifact keeps its sources rebuildable (§11.7).
+            if (record.retainArtifact && record.artifactBlobId != null) {
+              await _versions.insertPin(
+                _pinCompanion(
+                  Pin(
+                    versionId: source.versionId,
+                    reason: PinReason.exportRetained,
+                    refId: record.id,
+                  ),
+                  record.createdAt,
+                ),
+              );
+            }
           }
         }),
       );
+
+  @override
+  Future<Result<List<BlobId>, VaultFailure>> releaseExportArtifacts({
+    required DateTime now,
+  }) => guardDb(
+    'releaseExportArtifacts',
+    () => _db.transaction(() async {
+      final rows = await _exports.releasableExportRows(now);
+      final purgable = <BlobId>[];
+      for (final row in rows) {
+        final blobId = row.artifactBlobId!;
+        await _exports.detachArtifact(row.id);
+        await _versions.deletePinsByRef(PinReason.exportRetained.dbValue, row.id);
+        await _versions.deleteBlobRow(blobId);
+        purgable.add(blobId);
+      }
+      return purgable;
+    }),
+  );
 
   @override
   Future<Result<ExportRecord?, VaultFailure>> findExportRecord(ExportId id) =>
@@ -600,6 +648,7 @@ final class EntryRepositoryImpl implements EntryRepository {
           updatedAt: row.updatedAt,
           assetCount: row.assetCount,
           hasOpenConflict: row.hasOpenConflict,
+          coverVersionId: row.coverVersionId,
         ),
       );
     }

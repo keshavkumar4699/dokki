@@ -47,6 +47,7 @@ dependencies:
   vault_sync:
     path: ../packages/vault_sync
   workmanager: ^0.8.0
+  share_plus: ^13.3.0
 
 dev_dependencies:
   flutter_test:

@@ -176,6 +176,37 @@ void main() {
       expect(reordered.assets.map((a) => a.ordinal), [0, 1, 2]);
     });
 
+    test('summary cover follows the first live page', () async {
+      final doc = await threePageDoc();
+      final ids = doc.assets.map((a) => a.id).toList();
+      Future<VersionId?> cover() async =>
+          unwrap(await repo.listEntries()).single.coverVersionId;
+      expect(await cover(), doc.assets.first.currentVersionId);
+      unwrap(
+        await repo.reorderPages(
+          doc.id,
+          [ids[2], ids[0], ids[1]],
+          hlc: fx.nextHlc(),
+          now: fx.clock.now(),
+        ),
+      );
+      expect(await cover(), doc.assets[2].currentVersionId);
+      unwrap(
+        await repo.deleteAsset(
+          ids[2],
+          Tombstone.of(
+            entityKind: TombstoneEntityKind.asset,
+            entityId: ids[2],
+            deletedHlc: fx.nextHlc(),
+            originDevice: deviceA,
+            deletedAt: fx.clock.now(),
+          ),
+          now: fx.clock.now(),
+        ),
+      );
+      expect(await cover(), doc.assets[0].currentVersionId);
+    });
+
     test('reorderPages rejects a partial or duplicated list', () async {
       final doc = await threePageDoc();
       final ids = doc.assets.map((a) => a.id).toList();
@@ -306,6 +337,9 @@ void main() {
     test('commitVersion appends and moves the pointer', () async {
       await commit();
       expect(asset.versions, hasLength(2));
+      // The list projection sees the new pointer without a reload.
+      final summary = unwrap(await repo.listEntries()).single;
+      expect(summary.coverVersionId, asset.currentVersionId);
       expect(asset.currentVersion!.isDerived, isTrue);
       expect(asset.currentVersion!.parentVersionId, asset.versions.first.id);
       expect(asset.currentVersion!.recipe, const EditRecipe([RotateOp(1)]));
@@ -516,6 +550,143 @@ void main() {
       await sub.cancel();
       expect(counts.first, 1);
       expect(counts.last, 2);
+    });
+  });
+
+  group('exports (§6.3, §11.7)', () {
+    late VaultEntry entry;
+
+    setUp(() async {
+      entry = unwrap(await repo.createEntry(fx.newEntry(EntryType.photo)));
+    });
+
+    ExportRecord record(
+      String id,
+      BlobRef? artifact, {
+      bool retain = false,
+      DateTime? expires,
+    }) => ExportRecord(
+      id: id,
+      entryId: entry.id,
+      request: const ExportRequest(
+        source: CurrentOfEntrySource('e'),
+        format: OutputFormat.jpeg,
+        quality: QualitySpec(quality: 85),
+      ),
+      format: 'JPEG',
+      status: 'SUCCESS',
+      createdAt: fx.clock.now(),
+      originDevice: deviceA,
+      artifactBlobId: artifact?.id,
+      artifactBlob: artifact,
+      retainArtifact: retain,
+      artifactExpiresAt: expires,
+      actualBytes: artifact?.plaintextSize,
+      pageCount: 1,
+      sources: [(versionId: entry.assets.single.currentVersionId, ordinal: 0)],
+    );
+
+    BlobRef artifact() {
+      final blob = fx.blob(size: 4321);
+      return BlobRef(
+        id: blob.id,
+        storageClass: StorageClass.exportArtifact,
+        relPath: 'exports/${blob.id.substring(0, 2)}/${blob.id}',
+        keyEpoch: 1,
+        wrappedDek: blob.wrappedDek,
+        plaintextSize: blob.plaintextSize,
+        ciphertextSize: blob.ciphertextSize,
+        ciphertextSha256: blob.ciphertextSha256,
+        plaintextSha256: blob.plaintextSha256,
+      );
+    }
+
+    test('recording writes the artifact blob row, not an upload', () async {
+      final blob = artifact();
+      unwrap(await repo.recordExport(record('x1', blob)));
+      expect(await db.versionsDao.blobById(blob.id), isNotNull);
+      expect(await db.syncDao.pendingQueueRows(), hasLength(1)); // the asset
+      final loaded = unwrap(await repo.findExportRecord('x1'))!;
+      expect(loaded.artifactBlobId, blob.id);
+      expect(loaded.request.quality.quality, 85);
+      expect(
+        loaded.sources.single.versionId,
+        entry.assets.single.currentVersionId,
+      );
+      final list = unwrap(await repo.listExportRecords(entry.id));
+      expect(list.single.actualBytes, 4321);
+    });
+
+    test('an artifact id without its BlobRef is rejected', () async {
+      final blob = artifact();
+      final failure = unwrapErr(
+        await repo.recordExport(
+          ExportRecord(
+            id: 'x2',
+            entryId: entry.id,
+            request: record('x2', null).request,
+            format: 'JPEG',
+            status: 'SUCCESS',
+            createdAt: fx.clock.now(),
+            originDevice: deviceA,
+            artifactBlobId: blob.id,
+          ),
+        ),
+      );
+      expect(failure, isA<InvalidAsset>());
+    });
+
+    test('a retained export pins its sources until GC releases it', () async {
+      final asset = entry.assets.single;
+      final blob = artifact();
+      unwrap(
+        await repo.recordExport(
+          record(
+            'x3',
+            blob,
+            retain: true,
+            expires: fx.clock.now().add(const Duration(days: 7)),
+          ),
+        ),
+      );
+      var pins = unwrap(await repo.loadPins(asset.id));
+      expect(
+        pins.hasPin(
+          asset.currentVersionId,
+          PinReason.exportRetained,
+          refId: 'x3',
+        ),
+        isTrue,
+      );
+
+      // Not yet expired: nothing to release.
+      expect(
+        unwrap(await repo.releaseExportArtifacts(now: fx.clock.now())),
+        isEmpty,
+      );
+
+      fx.clock.advance(const Duration(days: 8));
+      final released = unwrap(
+        await repo.releaseExportArtifacts(now: fx.clock.now()),
+      );
+      expect(released, [blob.id]);
+      expect(await db.versionsDao.blobById(blob.id), isNull);
+      final loaded = unwrap(await repo.findExportRecord('x3'))!;
+      expect(loaded.artifactBlobId, isNull);
+      expect(loaded.retainArtifact, isFalse);
+      expect(loaded.status, 'SUCCESS'); // history survives GC
+      pins = unwrap(await repo.loadPins(asset.id));
+      expect(pins.pins, isEmpty);
+    });
+
+    test('a non-retained artifact is released on the next sweep', () async {
+      final blob = artifact();
+      unwrap(await repo.recordExport(record('x4', blob)));
+      final released = unwrap(
+        await repo.releaseExportArtifacts(now: fx.clock.now()),
+      );
+      expect(released, [blob.id]);
+      expect(unwrap(await repo.findExportRecord('x4'))!.artifactBlobId, isNull);
     });
   });
 }

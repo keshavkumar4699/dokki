@@ -8,6 +8,7 @@ import 'package:vault_app_core/vault_app_core.dart';
 import '../../bootstrap/app_graph.dart';
 import '../../bootstrap/providers.dart';
 import '../../core_ui/failure_messages.dart';
+import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
 import '../../core_ui/widgets/pin_pad.dart';
@@ -23,23 +24,33 @@ class UnlockScreen extends ConsumerStatefulWidget {
 
 class _UnlockScreenState extends ConsumerState<UnlockScreen> {
   bool _error = false;
+  bool _verifying = false;
+  bool _unlocked = false;
   String? _message;
 
   Future<void> _submit(String pin) async {
     setState(() {
       _error = false;
+      _verifying = true;
       _message = null;
     });
     final result = await ref.read(sessionProvider).unlockWithPin(pin);
     if (!mounted) {
       return;
     }
-    result.fold((_) {}, (failure) {
-      setState(() {
+    result.fold(
+      (_) => setState(() {
+        // The router replaces this screen on the next frame; the open lock
+        // is what the eye catches during the fade-through.
+        _verifying = false;
+        _unlocked = true;
+      }),
+      (failure) => setState(() {
+        _verifying = false;
         _error = true;
         _message = describeFailure(failure).detail;
-      });
-    });
+      }),
+    );
   }
 
   @override
@@ -69,47 +80,54 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Spacer(),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: scheme.tertiaryContainer,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(DokkiSpace.lg),
-                          child: Icon(
-                            Icons.lock_outline,
-                            size: 32,
-                            color: scheme.onTertiaryContainer,
-                          ),
+                      PopIn(
+                        child: LockMark(
+                          verifying: _verifying,
+                          unlocked: _unlocked,
                         ),
                       ),
                       const SizedBox(height: DokkiSpace.xl),
-                      Text('Enter your PIN', style: text.headlineSmall),
-                      const SizedBox(height: DokkiSpace.sm),
-                      AnimatedSwitcher(
-                        duration: DokkiDuration.normal,
+                      FadeSlideIn.staggered(
+                        1,
                         child: Text(
-                          _message ?? _subtitleFor(reason),
-                          key: ValueKey(_message ?? reason),
-                          textAlign: TextAlign.center,
-                          style: text.bodyMedium?.copyWith(
-                            color: _error
-                                ? scheme.error
-                                : scheme.onSurfaceVariant,
+                          'Enter your PIN',
+                          style: text.headlineSmall,
+                        ),
+                      ),
+                      const SizedBox(height: DokkiSpace.sm),
+                      FadeSlideIn.staggered(
+                        2,
+                        child: AnimatedSwitcher(
+                          duration: DokkiDuration.normal,
+                          child: Text(
+                            _message ?? _subtitleFor(reason),
+                            key: ValueKey(_message ?? reason),
+                            textAlign: TextAlign.center,
+                            style: text.bodyMedium?.copyWith(
+                              color: _error
+                                  ? scheme.error
+                                  : scheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
                       const SizedBox(height: DokkiSpace.xxl),
-                      PinPad(
-                        length: UnlockScreen.pinLength,
-                        onCompleted: _submit,
-                        error: _error,
-                        trailingAction: const _BiometricButton(),
+                      FadeSlideIn.staggered(
+                        3,
+                        child: PinPad(
+                          length: UnlockScreen.pinLength,
+                          onCompleted: _submit,
+                          error: _error,
+                          trailingAction: const _BiometricButton(),
+                        ),
                       ),
                       const Spacer(),
-                      const SecurityChip(
-                        'Encrypted on this device',
-                        icon: Icons.shield_outlined,
+                      FadeSlideIn.staggered(
+                        5,
+                        child: const SecurityChip(
+                          'Encrypted on this device',
+                          icon: Icons.shield_outlined,
+                        ),
                       ),
                     ],
                   ),
@@ -128,6 +146,74 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
     LockReason.autoLock => 'Locked automatically while you were away.',
     LockReason.platform => 'Locked when the screen turned off.',
   };
+}
+
+/// The brass lock: closed at rest, ringed by a progress arc while the PIN
+/// is checked, and swung open the instant the vault unlocks.
+class LockMark extends StatelessWidget {
+  const LockMark({
+    required this.verifying,
+    required this.unlocked,
+    this.size = 32,
+    super.key,
+  });
+
+  final bool verifying;
+  final bool unlocked;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final diameter = size + DokkiSpace.lg * 2;
+    return SizedBox.square(
+      dimension: diameter + 8,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedOpacity(
+            duration: DokkiDuration.normal,
+            opacity: verifying ? 1 : 0,
+            child: SizedBox.square(
+              dimension: diameter + 8,
+              child: verifying
+                  ? CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: scheme.tertiary,
+                    )
+                  : null,
+            ),
+          ),
+          AnimatedContainer(
+            duration: DokkiDuration.slow,
+            curve: DokkiCurves.enter,
+            width: diameter,
+            height: diameter,
+            decoration: BoxDecoration(
+              color: unlocked ? scheme.tertiary : scheme.tertiaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: AnimatedSwitcher(
+              duration: DokkiDuration.normal,
+              switchInCurve: DokkiCurves.pop,
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: animation,
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: Icon(
+                unlocked ? Icons.lock_open_rounded : Icons.lock_outline,
+                key: ValueKey(unlocked),
+                size: size,
+                color: unlocked
+                    ? scheme.onTertiary
+                    : scheme.onTertiaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Biometrics need an auth-bound Keystore key, which only the native

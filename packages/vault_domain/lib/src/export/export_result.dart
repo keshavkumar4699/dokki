@@ -7,6 +7,26 @@ library;
 import '../ids.dart';
 import 'export_request.dart';
 
+/// `export_records.status` (§6.3).
+enum ExportStatus {
+  success('SUCCESS'),
+  failed('FAILED'),
+  cancelled('CANCELLED');
+
+  const ExportStatus(this.dbValue);
+
+  final String dbValue;
+
+  static ExportStatus? fromDbValue(String value) {
+    for (final status in ExportStatus.values) {
+      if (status.dbValue == value) {
+        return status;
+      }
+    }
+    return null;
+  }
+}
+
 enum ExportWarning {
   targetSizeMissed,
   qualityFloorReached,

@@ -10,7 +10,7 @@ A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, a
 
 ## Status
 
-Phases 0–3 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path; Phase 4 is covered by the Dart reference image pipeline:
+Phases 0–3 and 5 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path; Phase 4 is covered by the Dart reference image pipeline:
 
 | Layer | State |
 |---|---|
@@ -21,8 +21,9 @@ Phases 0–3 of §17 are implemented and running end to end on Android, Phase 2 
 | `vault_imaging` | `DartImageProcessor` over `package:image` (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). 11 tests. |
 | `vault_app_core` | `UnlockSession` (auto-lock), create/add/reorder/delete, `CommitEdit` (retention + post-commit purge), switch/re-materialize versions. 32 tests. |
 | `platform_android` | Kotlin: Keystore-bound KEK (StrongBox → TEE fallback, auth-bound), Argon2id (argon2kt), HKDF, per-chunk AES-256-GCM session, BiometricPrompt device-credential gate, `FLAG_SECURE`, device-lock probe. **The native imaging channel is still `notImplemented`** (Dart reference processor is used). |
-| `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), settings. 4 widget tests. |
-| `vault_export`, `vault_pdf`, `vault_sync`, `vault_drive` | Skeletons only (Phases 5–7). |
+| `vault_export` | `ExportEngineImpl` (§11.3: validate → resolve → raster → size-solve → encode → seal → record), `LayoutEngine`, `SizeSolver` (quality search + downscale rounds, `maxBytes` hard / `targetBytes` best-effort), quick/configured/Export-Again use cases, artifact retention + expiry GC, three built-in presets. 29 tests. |
+| `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), export sheet with presets + history + share (neutral filenames), settings. Motion system (`core_ui/motion.dart`): staggered entrances, press feedback, fade-through gate transitions, hero cover grid→detail, optimistic rotate preview, PIN "verifying" wave; honours the OS reduce-motion setting. Adaptive vector launcher icon and matching splash. 4 widget tests. |
+| `vault_pdf`, `vault_sync`, `vault_drive` | Skeletons only (Phases 6–7). |
 
 ### Security posture of the current build
 
@@ -44,6 +45,9 @@ Deviation from §8.3: the Keystore key is auth-bound with a 30 s validity window
 - Sync op-log *emission* from use cases is deferred to Phase 7 along with the engine.
 - The keyring is a JSON file outside the database (see above); the doc's `keyring.bin` sealed copy is the cloud form (Phase 7).
 - `KeyManager.deriveDbKey()` and `importKeyring(pin:)` were added to the port: SQLCipher needs raw bytes, and a bootstrap needs a new PIN to wrap under.
+- `VaultEntrySummary.coverVersionId` (the first live asset's current version) is part of the list read model, so the grid renders thumbnails from one query and follows rotations/reorders live.
+- `RasterEngine` port added (prepare/encode over a `BlobHandle`) so the export pipeline never holds a bitmap in Dart; `ExportSourceResolver` port added so the engine resolves evicted versions through the re-materialization use case without importing `vault_app_core`.
+- Export artifacts are sealed blobs (`StorageClass.exportArtifact`) shared through a swept `ShareCache` with neutral filenames (`dokki-<id8>.<ext>`); the share sheet is the only place plaintext leaves the vault (A8).
 
 ## Development
 

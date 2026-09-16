@@ -49,6 +49,31 @@ class ExportsDao extends DatabaseAccessor<AppDatabase> with _$ExportsDaoMixin {
     return query.get();
   }
 
+  /// Records still holding an artifact that is not retained, or whose
+  /// retention expired at or before [now] (§11.7 GC).
+  Future<List<ExportRecordData>> releasableExportRows(DateTime now) {
+    final query = select(exportRecords)
+      ..where(
+        (t) =>
+            t.artifactBlobId.isNotNull() &
+            (t.retainArtifact.equals(false) |
+                t.artifactExpiresAt.isNull() |
+                t.artifactExpiresAt.isSmallerOrEqualValue(
+                  now.millisecondsSinceEpoch,
+                )),
+      );
+    return query.get();
+  }
+
+  Future<void> detachArtifact(String exportId) =>
+      (update(exportRecords)..where((t) => t.id.equals(exportId))).write(
+        const ExportRecordsCompanion(
+          artifactBlobId: Value(null),
+          retainArtifact: Value(false),
+          artifactExpiresAt: Value(null),
+        ),
+      );
+
   Future<List<ExportSummaryRow>> exportSummariesFor(String entryId) {
     final query = select(exportRecords)
       ..where((t) => t.entryId.equals(entryId))

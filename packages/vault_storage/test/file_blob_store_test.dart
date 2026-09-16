@@ -107,6 +107,34 @@ void main() {
     expect(out, secret);
   });
 
+  test('copyPlaintextTo writes the decrypted file atomically', () async {
+    final ref = await writeSecret(cls: StorageClass.exportArtifact);
+    final cache = ShareCache(p.join(root.path, 'export_tmp'));
+    final target = cache.pathFor('share.jpg');
+    final written = (await store.copyPlaintextTo(ref.id, target)).okOrNull!;
+    expect(written, secret.length);
+    expect(File(target).readAsBytesSync(), secret);
+    expect(File('$target.part').existsSync(), isFalse);
+
+    // The cache is the only place plaintext may live, and it is swept.
+    expect((await cache.discard(target)).isOk, isTrue);
+    expect(File(target).existsSync(), isFalse);
+    File(cache.pathFor('left-over.png')).writeAsBytesSync(const [1, 2]);
+    expect((await cache.sweep()).okOrNull, 1);
+    expect(Directory(cache.directory).listSync(), isEmpty);
+    // Anything outside the cache is refused.
+    final outside = p.join(root.path, 'blobs', 'x');
+    expect((await cache.discard(outside)).errOrNull, isA<InvalidAsset>());
+  });
+
+  test('copyPlaintextTo of an unknown blob is CorruptFile', () async {
+    final result = await store.copyPlaintextTo(
+      'nope',
+      p.join(root.path, 'export_tmp', 'x'),
+    );
+    expect(result.errOrNull, isA<CorruptFile>());
+  });
+
   test('readSmall honours its cap', () async {
     final ref = await writeSecret();
     final small = await store.readSmall(ref.id, maxBytes: 100);
