@@ -9,6 +9,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:vault_domain/vault_domain.dart';
 
@@ -228,7 +229,7 @@ final class ExportEngineImpl implements ExportEngine {
     }
   }
 
-  // ── PDF path (Phase 6) ──────────────────────────────────────────────────
+  // ── PDF path ────────────────────────────────────────────────────────────
 
   Future<_Produced> _runPdf(
     ExportRequest request,
@@ -254,18 +255,148 @@ final class ExportEngineImpl implements ExportEngine {
       cancel?.throwIfCancelled();
       handles.add(_unwrap(await blobStore.openRead(source.blobId)));
     }
-    final bytes = _unwrap(
-      await composer.compose(
-        PdfComposeRequest(spec: page, placements: placements, images: handles),
-        progress: progress,
-        cancel: cancel,
-      ),
-    );
+
+    // §11.4 PDF size targeting, honestly: binary-search JPEG quality, then
+    // shrink the effective DPI in rounds. `maxBytes` is a hard constraint
+    // and exceeding it fails; `targetBytes` is best effort + a warning.
+    final spec = request.quality;
+    final target = spec.targetBytes;
+    final max = spec.maxBytes;
+    final limit = target ?? max;
+    final floor = spec.minQualityFloor;
+    final requested = spec.quality ?? solver.defaultQuality;
+    const initialDpi = 300;
+
+    Future<List<int>> composeAt(int quality, int dpi) async {
+      cancel?.throwIfCancelled();
+      return _unwrap(
+        await composer.compose(
+          PdfComposeRequest(
+            spec: page,
+            placements: placements,
+            images: handles,
+            quality: quality,
+            effectiveDpi: dpi,
+            color: request.color,
+          ),
+          progress: progress,
+          cancel: cancel,
+        ),
+      );
+    }
+
+    bool withinTarget(int bytes) =>
+        target != null &&
+        (bytes - target).abs() <= target * solver.tolerance &&
+        bytes <= target;
+
+    final List<int> accepted;
+    var acceptedQ = requested;
+    var acceptedDpi = initialDpi;
+
+    if (limit == null) {
+      accepted = await composeAt(requested, initialDpi);
+    } else {
+      var dpi = initialDpi;
+      var rounds = 0;
+      List<int>? chosen;
+      while (chosen == null) {
+        final first = await composeAt(requested, dpi);
+        List<int>? under; // largest bytes ≤ limit (closest from below)
+        var underQ = requested;
+        var smallest = first; // smallest bytes seen this round
+        var smallestQ = requested;
+        if (first.length <= limit) {
+          // Under the cap; if a target was set and missed by more than
+          // the tolerance, that is a warning, not a search (M13).
+          under = first;
+        } else {
+          // Binary search quality in [floor, requested - 1].
+          var lo = floor;
+          var hi = requested - 1;
+          var probes = solver.maxProbes;
+          while (lo <= hi && probes > 0) {
+            final mid = (lo + hi) ~/ 2;
+            final bytes = await composeAt(mid, dpi);
+            probes--;
+            if (bytes.length < smallest.length) {
+              smallest = bytes;
+              smallestQ = mid;
+            }
+            if (bytes.length <= limit) {
+              if (under == null || bytes.length > under.length) {
+                under = bytes;
+                underQ = mid;
+              }
+              if (withinTarget(bytes.length)) {
+                break;
+              }
+              lo = mid + 1;
+            } else {
+              hi = mid - 1;
+            }
+          }
+          if (under == null && smallestQ != floor) {
+            // The search may have skipped the floor itself.
+            final atFloor = await composeAt(floor, dpi);
+            if (atFloor.length < smallest.length) {
+              smallest = atFloor;
+              smallestQ = floor;
+            }
+            if (atFloor.length <= limit) {
+              under = atFloor;
+              underQ = floor;
+            }
+          }
+        }
+        if (under != null) {
+          chosen = under;
+          acceptedQ = underQ;
+          acceptedDpi = dpi;
+          if (target != null && !withinTarget(under.length)) {
+            warnings.add(ExportWarning.targetSizeMissed);
+          }
+          if (first.length > limit && underQ <= floor) {
+            warnings.add(ExportWarning.qualityFloorReached);
+          }
+          break;
+        }
+        // Nothing at this DPI fits under the limit.
+        if (max == null || smallest.length <= max) {
+          // Only a best-effort target was missed (or the hard cap holds
+          // anyway): return the smallest attempt with a warning (M13).
+          chosen = smallest;
+          acceptedQ = smallestQ;
+          acceptedDpi = dpi;
+          warnings
+            ..add(ExportWarning.targetSizeMissed)
+            ..add(ExportWarning.qualityFloorReached);
+          break;
+        }
+        if (!spec.allowDownscale || rounds >= solver.maxDownscaleRounds) {
+          throw ExportException(
+            SizeUnattainable(smallest.length, max),
+          );
+        }
+        final shrink = (math.sqrt(limit / smallest.length) * 0.95)
+            .clamp(0.05, 0.95);
+        final nextDpi = (dpi * shrink).round();
+        if (nextDpi >= dpi) {
+          throw ExportException(
+            SizeUnattainable(smallest.length, max),
+          );
+        }
+        dpi = nextDpi;
+        rounds++;
+      }
+      accepted = chosen;
+    }
+
     final artifact = _unwrap(
       await blobStore.write(
-        Stream.value(bytes),
+        Stream.value(accepted),
         storageClass: StorageClass.exportArtifact,
-        expectedSize: bytes.length,
+        expectedSize: accepted.length,
         cancel: cancel,
       ),
     );
@@ -275,8 +406,8 @@ final class ExportEngineImpl implements ExportEngine {
       width: paper.width.round(),
       height: paper.height.round(),
       pageCount: LayoutEngine.pageCount(page, sources.length),
-      quality: request.quality.quality ?? solver.defaultQuality,
-      dpi: null,
+      quality: acceptedQ,
+      dpi: acceptedDpi,
       warnings: warnings.toList(growable: false),
     );
   }

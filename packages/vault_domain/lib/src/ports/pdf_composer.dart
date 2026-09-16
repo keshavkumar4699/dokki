@@ -18,6 +18,9 @@ final class PdfComposeRequest {
     required this.spec,
     required this.placements,
     required this.images,
+    this.quality = 85,
+    this.effectiveDpi = 300,
+    this.color = const ColorSpec(),
   });
 
   final PageLayoutSpec spec;
@@ -27,6 +30,18 @@ final class PdfComposeRequest {
 
   /// Sealed image blobs, in the same order as [placements].
   final List<BlobHandle> images;
+
+  /// JPEG quality for embedded images, 1..100 (§11.4). The size solver
+  /// probes this per attempt; the composer never iterates on its own.
+  final int quality;
+
+  /// Resolution the embedded images are downsampled to for their placed
+  /// frame (§11.4): a 4000 px scan in a 90 mm cell at 300 DPI needs about
+  /// 1063 px — anything beyond that is pure waste.
+  final int effectiveDpi;
+
+  /// Grayscale / 1-bit / background fill applied before embedding.
+  final ColorSpec color;
 }
 
 abstract interface class PdfComposer {

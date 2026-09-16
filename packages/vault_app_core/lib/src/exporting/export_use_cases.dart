@@ -79,11 +79,40 @@ final class LosslessPngPreset implements ExportPreset {
   );
 }
 
+/// Print-ready A4 PDF (§11.6, Phase 6). An ID lands front+back
+/// side-by-side on one page; a document becomes one page per scan.
+final class A4PdfPreset implements ExportPreset {
+  const A4PdfPreset();
+
+  @override
+  String get id => 'a4pdf';
+
+  @override
+  String get displayName => 'A4 PDF (print-ready)';
+
+  @override
+  bool appliesTo(EntryType type) => true;
+
+  @override
+  ExportRequest build(ExportContext context) => ExportRequest(
+    source: context.source,
+    format: OutputFormat.pdf,
+    quality: const QualitySpec(quality: 90),
+    page: PageLayoutSpec(
+      paper: PaperSize.a4,
+      layout: context.entryType == EntryType.id
+          ? LayoutMode.sideBySide
+          : LayoutMode.single,
+    ),
+  );
+}
+
 /// The presets every build ships with.
 ExportPresetRegistry builtInExportPresets() => ExportPresetRegistry(const [
   FullQualityPreset(),
   EmailFriendlyPreset(),
   LosslessPngPreset(),
+  A4PdfPreset(),
 ]);
 
 // ── Use cases ───────────────────────────────────────────────────────────

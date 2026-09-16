@@ -31,6 +31,7 @@ import 'package:vault_crypto/vault_crypto.dart';
 import 'package:vault_domain/vault_domain.dart';
 import 'package:vault_export/vault_export.dart';
 import 'package:vault_imaging/vault_imaging.dart';
+import 'package:vault_pdf/vault_pdf.dart';
 import 'package:vault_persistence/vault_persistence.dart';
 import 'package:vault_storage/vault_storage.dart';
 
@@ -232,12 +233,13 @@ Future<AppBoot> composeBoot() async {
         images: images,
         thumbnails: thumbnails,
       );
+      final plaintext = _PlaintextAdapter(blobStore);
       final exports = ExportUseCases(
         context: context,
         engine: ExportEngineImpl(
           entries: entries,
           blobStore: blobStore,
-          raster: DartRasterEngine(source: _PlaintextAdapter(blobStore)),
+          raster: DartRasterEngine(source: plaintext),
           resolver: ExportSourceResolverImpl(
             entries: entries,
             rematerialize: RematerializeVersionUseCase(versionServices),
@@ -245,6 +247,7 @@ Future<AppBoot> composeBoot() async {
           clock: clock,
           ids: ids,
           deviceId: deviceId,
+          pdf: PdfComposerImpl(source: plaintext),
         ),
         entries: entries,
         blobStore: blobStore,

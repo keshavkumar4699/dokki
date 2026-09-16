@@ -66,6 +66,52 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
 
   bool get _multi => (widget.entry?.liveAssets.length ?? 0) > 1;
 
+  /// The format a preset produces, found by building its request — the
+  /// honest way, since presets are just request builders (§11.6).
+  bool _isPdfPreset(VaultEntry? entry, [String? presetId]) {
+    if (entry == null) {
+      return false;
+    }
+    final presets = ref.read(appGraphProvider).exports.presets;
+    final preset = presets.byId(presetId ?? _presetId);
+    if (preset == null) {
+      return false;
+    }
+    return preset.build(_exportContext(entry)).format == OutputFormat.pdf;
+  }
+
+  List<ExportPreset> _pdfPresets(VaultEntry entry) => [
+    for (final preset in ref
+        .read(appGraphProvider)
+        .exports
+        .presets
+        .forType(entry.type))
+      if (_isPdfPreset(entry, preset.id)) preset,
+  ];
+
+  /// "All pages" needs a multi-image format, so only PDF presets are
+  /// offered in that scope; a single page/side allows every preset.
+  List<ExportPreset> _visiblePresets(VaultEntry? entry) {
+    final presets = ref
+        .read(appGraphProvider)
+        .exports
+        .presets
+        .forType(entry?.type ?? EntryType.photo);
+    if (entry == null || !_multi || _scope == _Scope.visible) {
+      return presets;
+    }
+    return [for (final preset in presets) if (_isPdfPreset(entry, preset.id)) preset];
+  }
+
+  ExportContext _exportContext(VaultEntry entry) => ExportContext(
+    entryType: entry.type,
+    currentVersionIds: {
+      for (final asset in entry.liveAssets)
+        asset.role.dbValue: asset.currentVersionId,
+    },
+    source: CurrentOfEntrySource(entry.id),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -161,7 +207,6 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final presets = ref.read(appGraphProvider).exports.presets;
     final entry = widget.entry;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -215,13 +260,18 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
                     entry: entry,
                     visible: widget.visible,
                     scope: _scope,
-                    onChanged: (s) => setState(() => _scope = s),
+                    onChanged: (s) => setState(() {
+                      _scope = s;
+                      // "All pages" can only be a PDF; hop to the PDF
+                      // preset if the current one encodes rasters.
+                      if (s == _Scope.all && !_isPdfPreset(entry)) {
+                        _presetId = _pdfPresets(entry).first.id;
+                      }
+                    }),
                   ),
                 ],
                 const SizedBox(height: DokkiSpace.lg),
-                for (final preset in presets.forType(
-                  entry?.type ?? EntryType.photo,
-                ))
+                for (final preset in _visiblePresets(entry))
                   _PresetTile(
                     preset: preset,
                     selected: preset.id == _presetId,
@@ -242,8 +292,8 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
   }
 }
 
-/// "This page" vs "All pages" — the latter only as a PDF, which is the
-/// next phase, so it is shown disabled with an honest hint.
+/// "This page" vs "All pages" — the latter selects the PDF presets,
+/// since a raster file can only hold one image.
 class _ScopeChips extends StatelessWidget {
   const _ScopeChips({
     required this.entry,
@@ -273,9 +323,10 @@ class _ScopeChips extends StatelessWidget {
           selected: scope == _Scope.visible,
           onSelected: (_) => onChanged(_Scope.visible),
         ),
-        Tooltip(
-          message: 'PDF export arrives with the next release.',
-          child: ChoiceChip(label: Text(all), selected: scope == _Scope.all),
+        ChoiceChip(
+          label: Text(all),
+          selected: scope == _Scope.all,
+          onSelected: (_) => onChanged(_Scope.all),
         ),
       ],
     );
@@ -303,6 +354,10 @@ class _PresetTile extends StatelessWidget {
         'Aims at about 200 KB; tells you where it landed.',
       ),
       'png' => (Icons.grid_on_outlined, 'Every pixel kept. Larger file.'),
+      'a4pdf' => (
+        Icons.picture_as_pdf_outlined,
+        'One A4 page per scan; an ID lands front+back side by side.',
+      ),
       _ => (Icons.high_quality_outlined, 'Best for printing and records.'),
     };
     return Padding(

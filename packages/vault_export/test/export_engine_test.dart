@@ -283,6 +283,154 @@ void main() {
     expect((await engine().run(request)).errOrNull, isA<UnsupportedFormat>());
   });
 
+  group('pdf path (§11.3, §11.4)', () {
+    late FakePdfComposer pdf;
+
+    ExportEngineImpl pdfEngine({
+      List<ResolvedSource>? sources,
+      int baseBytes = 20000,
+    }) {
+      pdf = FakePdfComposer(baseBytes: baseBytes);
+      return ExportEngineImpl(
+        entries: entries,
+        blobStore: store,
+        raster: raster,
+        resolver: CannedResolver(sources ?? [resolved()]),
+        clock: clock,
+        ids: SequenceIds(),
+        deviceId: 'device-a',
+        pdf: pdf,
+      );
+    }
+
+    const a4Single = ExportRequest(
+      source: CurrentOfEntrySource('entry-1'),
+      format: OutputFormat.pdf,
+      quality: QualitySpec(),
+      page: PageLayoutSpec(paper: PaperSize.a4),
+    );
+
+    test('an id pair composes side-by-side on one A4 page', () async {
+      const request = ExportRequest(
+        source: IdPairSource(front: 'v-1', back: 'v-2'),
+        format: OutputFormat.pdf,
+        quality: QualitySpec(quality: 90),
+        page: PageLayoutSpec(paper: PaperSize.a4, layout: LayoutMode.sideBySide),
+      );
+      final ok = (await pdfEngine(
+        sources: [resolved(), resolved(versionId: 'v-2')],
+      ).run(request)).okOrNull!;
+      expect(ok.format, OutputFormat.pdf);
+      expect(ok.pageCount, 1);
+      expect(ok.appliedQuality, 90);
+      expect(ok.effectiveDpi, 300);
+      expect(pdf.lastRequest!.placements, hasLength(2));
+      expect(pdf.lastRequest!.images, hasLength(2));
+      final record = entries.records.single;
+      expect(record.status, 'SUCCESS');
+      expect(record.format, 'PDF');
+      expect(record.layout, 'SIDE_BY_SIDE');
+      expect(record.paperSize, 'A4');
+      expect(record.sources, hasLength(2));
+    });
+
+    test('an unconstrained pdf composes exactly once at defaults', () async {
+      final ok = (await pdfEngine().run(a4Single)).okOrNull!;
+      expect(pdf.probes, [(quality: 85, effectiveDpi: 300)]);
+      expect(ok.warnings, isEmpty);
+      expect(store.classes[ok.artifactBlobId], StorageClass.exportArtifact);
+    });
+
+    test('quality and colour flow into the compose request', () async {
+      const request = ExportRequest(
+        source: CurrentOfEntrySource('entry-1'),
+        format: OutputFormat.pdf,
+        quality: QualitySpec(quality: 55),
+        page: PageLayoutSpec(paper: PaperSize.a5),
+        color: ColorSpec(grayscale: true),
+      );
+      await pdfEngine().run(request);
+      expect(pdf.probes.single.quality, 55);
+      expect(pdf.lastRequest!.color.grayscale, isTrue);
+    });
+
+    test('a quality search lands a 10 KB target within tolerance', () async {
+      const request = ExportRequest(
+        source: CurrentOfEntrySource('entry-1'),
+        format: OutputFormat.pdf,
+        quality: QualitySpec(targetBytes: 10000),
+        page: PageLayoutSpec(paper: PaperSize.a4),
+      );
+      final ok = (await pdfEngine().run(request)).okOrNull!;
+      expect(ok.actualBytes, lessThanOrEqualTo(10000));
+      expect(ok.actualBytes, greaterThanOrEqualTo(9000));
+      expect(ok.warnings, isNot(contains(ExportWarning.targetSizeMissed)));
+      expect(pdf.probes.length, greaterThan(1));
+    });
+
+    test('dpi downscale rounds engage when the quality floor is not enough', () async {
+      const request = ExportRequest(
+        source: CurrentOfEntrySource('entry-1'),
+        format: OutputFormat.pdf,
+        quality: QualitySpec(maxBytes: 6000),
+        page: PageLayoutSpec(paper: PaperSize.a4),
+      );
+      final ok = (await pdfEngine().run(request)).okOrNull!;
+      expect(ok.actualBytes, lessThanOrEqualTo(6000));
+      expect(ok.effectiveDpi, lessThan(300));
+      expect(ok.appliedQuality, lessThan(85));
+      expect(
+        pdf.probes.where((p) => p.effectiveDpi < 300),
+        isNotEmpty,
+      );
+    });
+
+    test('maxBytes that cannot be met is a hard failure, recorded', () async {
+      const request = ExportRequest(
+        source: CurrentOfEntrySource('entry-1'),
+        format: OutputFormat.pdf,
+        quality: QualitySpec(maxBytes: 1000, allowDownscale: false),
+        page: PageLayoutSpec(paper: PaperSize.a4),
+      );
+      final result = await pdfEngine().run(request);
+      expect(result.errOrNull, isA<SizeUnattainable>());
+      expect(entries.records.single.status, 'FAILED');
+      expect(entries.records.single.failureCode, 'SIZE_UNATTAINABLE');
+      expect(store.classes.values, isNot(contains(StorageClass.exportArtifact)));
+    });
+
+    test('a missed best-effort target warns instead of failing', () async {
+      const request = ExportRequest(
+        source: CurrentOfEntrySource('entry-1'),
+        format: OutputFormat.pdf,
+        quality: QualitySpec(targetBytes: 4000),
+        page: PageLayoutSpec(paper: PaperSize.a4),
+      );
+      final ok = (await pdfEngine().run(request)).okOrNull!;
+      expect(ok.warnings, contains(ExportWarning.targetSizeMissed));
+      expect(ok.warnings, contains(ExportWarning.qualityFloorReached));
+      expect(ok.actualBytes, greaterThan(4000));
+    });
+
+    test('a composer failure is recorded as FAILED', () async {
+      pdf = FakePdfComposer(failure: const PdfGenerationFailed(pageIndex: 0));
+      final broken = ExportEngineImpl(
+        entries: entries,
+        blobStore: store,
+        raster: raster,
+        resolver: CannedResolver([resolved()]),
+        clock: clock,
+        ids: SequenceIds(),
+        deviceId: 'device-a',
+        pdf: pdf,
+      );
+      final result = await broken.run(a4Single);
+      expect(result.errOrNull, isA<PdfGenerationFailed>());
+      expect(entries.records.single.status, 'FAILED');
+      expect(entries.records.single.failureCode, 'PDF_GENERATION_FAILED');
+    });
+  });
+
   test('two images in a raster format need pdf; recorded as FAILED', () async {
     final result = await engine(
       sources: [

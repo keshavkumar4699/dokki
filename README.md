@@ -10,7 +10,7 @@ A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, a
 
 ## Status
 
-Phases 0–3 and 5 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path; Phase 4 is covered by the Dart reference image pipeline:
+Phases 0–3, 5 and 6 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path; Phase 4 is covered by the Dart reference image pipeline:
 
 | Layer | State |
 |---|---|
@@ -21,9 +21,10 @@ Phases 0–3 and 5 of §17 are implemented and running end to end on Android, Ph
 | `vault_imaging` | `DartImageProcessor` over `package:image` (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). 11 tests. |
 | `vault_app_core` | `UnlockSession` (auto-lock), create/add/reorder/delete, `CommitEdit` (retention + post-commit purge), switch/re-materialize versions. 32 tests. |
 | `platform_android` | Kotlin: Keystore-bound KEK (StrongBox → TEE fallback, auth-bound), Argon2id (argon2kt), HKDF, per-chunk AES-256-GCM session, BiometricPrompt device-credential gate, `FLAG_SECURE`, device-lock probe. **The native imaging channel is still `notImplemented`** (Dart reference processor is used). |
-| `vault_export` | `ExportEngineImpl` (§11.3: validate → resolve → raster → size-solve → encode → seal → record), `LayoutEngine`, `SizeSolver` (quality search + downscale rounds, `maxBytes` hard / `targetBytes` best-effort), quick/configured/Export-Again use cases, artifact retention + expiry GC, three built-in presets. 29 tests. |
-| `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), export sheet with presets + history + share (neutral filenames), settings. Motion system (`core_ui/motion.dart`): staggered entrances, press feedback, fade-through gate transitions, hero cover grid→detail, optimistic rotate preview, PIN "verifying" wave; honours the OS reduce-motion setting. Adaptive vector launcher icon and matching splash. 4 widget tests. |
-| `vault_pdf`, `vault_sync`, `vault_drive` | Skeletons only (Phases 6–7). |
+| `vault_export` | `ExportEngineImpl` (§11.3: validate → resolve → raster/pdf → size-solve → encode/compose → seal → record), `LayoutEngine`, `SizeSolver` (quality search + downscale rounds, `maxBytes` hard / `targetBytes` best-effort; the PDF path searches JPEG quality then effective DPI), quick/configured/Export-Again use cases, artifact retention + expiry GC, four built-in presets. 43 tests. |
+| `vault_pdf` | `PdfComposerImpl` over `package:pdf`: exact mm placement from `PlacedCell`s, per-image decode → effective-DPI downsample → colour → JPEG at the probed quality, zero `/Info` metadata. 13 tests. |
+| `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), export sheet with presets + "all pages (PDF)" scope + history + share (neutral filenames), settings. Motion system (`core_ui/motion.dart`): staggered entrances, press feedback, fade-through gate transitions, hero cover grid→detail, optimistic rotate preview, PIN "verifying" wave; honours the OS reduce-motion setting. Adaptive vector launcher icon and matching splash. 4 widget tests. |
+| `vault_sync`, `vault_drive` | Skeletons only (Phase 7). |
 
 ### Security posture of the current build
 

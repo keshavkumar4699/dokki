@@ -216,6 +216,39 @@ final class RecordingEntries implements EntryRepository {
       throw UnimplementedError('${invocation.memberName}');
 }
 
+/// A composer with a known size curve so the §11.4 PDF search is tested
+/// independently of any real codec: per image,
+/// `baseBytes × (0.02 + 0.0098 × quality) × (dpi / 300)`, plus a fixed
+/// document overhead. Records every probe.
+final class FakePdfComposer implements PdfComposer {
+  FakePdfComposer({this.baseBytes = 20000, this.failure});
+
+  final int baseBytes;
+  VaultFailure? failure;
+  final List<({int quality, int effectiveDpi})> probes = [];
+  PdfComposeRequest? lastRequest;
+
+  @override
+  Future<Result<List<int>, VaultFailure>> compose(
+    PdfComposeRequest request, {
+    ProgressSink? progress,
+    CancellationToken? cancel,
+  }) async {
+    lastRequest = request;
+    final failure = this.failure;
+    if (failure != null) {
+      return Err(failure);
+    }
+    probes.add((quality: request.quality, effectiveDpi: request.effectiveDpi));
+    final perImage =
+        baseBytes *
+        (0.02 + 0.0098 * request.quality) *
+        (request.effectiveDpi / 300);
+    final size = (request.images.length * perImage).round() + 500;
+    return Ok(List<int>.filled(size, 0x25));
+  }
+}
+
 final class CannedResolver implements ExportSourceResolver {
   CannedResolver(this.sources, {this.failure});
 
