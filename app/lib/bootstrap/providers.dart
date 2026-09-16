@@ -96,6 +96,18 @@ final exportHistoryProvider = FutureProvider.autoDispose
       );
     });
 
+// ── Sync ───────────────────────────────────────────────────────────────────
+
+/// Drive auth state (signed in / out), refreshed by the sync section.
+final syncAuthStateProvider = FutureProvider<CloudAuthState>(
+  (ref) => ref.watch(appGraphProvider).syncLink.authState(),
+);
+
+/// Live sync status: running, pending ops, open conflicts, last cycle.
+final syncStatusProvider = StreamProvider<SyncStatus>(
+  (ref) => ref.watch(appGraphProvider).sync.watchStatus(),
+);
+
 // ── Thumbnails ─────────────────────────────────────────────────────────────
 
 typedef ThumbnailKey = ({VersionId versionId, ThumbnailSizeClass size});

@@ -17,6 +17,7 @@ final class AppBoot {
     required this.cryptoBackend,
     required this.openVault,
     required this.closeVault,
+    required this.restoreFromDrive,
   });
 
   final UnlockSession session;
@@ -33,4 +34,14 @@ final class AppBoot {
 
   /// Closes the database and drops the graph (on lock).
   final Future<void> Function() closeVault;
+
+  /// §9.9 bootstrap: sign in, download the keyring, unwrap MK with the
+  /// recovery passphrase and rewrap it under this device's keys. After
+  /// this succeeds, [openVault] opens the restored vault and the first
+  /// sync cycle replays the log.
+  final Future<Result<void, VaultFailure>> Function({
+    required String pin,
+    required String recoveryPassphrase,
+  })
+  restoreFromDrive;
 }

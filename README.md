@@ -10,7 +10,7 @@ A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, a
 
 ## Status
 
-Phases 0–6 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
+Phases 0–7 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
 
 | Layer | State |
 |---|---|
@@ -24,7 +24,9 @@ Phases 0–6 of §17 are implemented and running end to end on Android, Phase 2 
 | `vault_export` | `ExportEngineImpl` (§11.3: validate → resolve → raster/pdf → size-solve → encode/compose → seal → record), `LayoutEngine`, `SizeSolver` (quality search + downscale rounds, `maxBytes` hard / `targetBytes` best-effort; the PDF path searches JPEG quality then effective DPI), quick/configured/Export-Again use cases, artifact retention + expiry GC, four built-in presets. 43 tests. |
 | `vault_pdf` | `PdfComposerImpl` over `package:pdf`: exact mm placement from `PlacedCell`s, per-image decode → effective-DPI downsample → colour → JPEG at the probed quality, zero `/Info` metadata. 13 tests. |
 | `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), export sheet with presets + "all pages (PDF)" scope + history + share (neutral filenames), settings. Motion system (`core_ui/motion.dart`): staggered entrances, press feedback, fade-through gate transitions, hero cover grid→detail, optimistic rotate preview, PIN "verifying" wave; honours the OS reduce-motion setting. Adaptive vector launcher icon and matching splash. 4 widget tests. |
-| `vault_sync`, `vault_drive` | Skeletons only (Phase 7). |
+| `vault_sync` | Segment codec (JSONL, unknown-op preservation, `minReaderVersion` halt), `SegmentSealer` (256 KiB / 5 min), `SyncExecutor` (leases, full-jitter backoff, queue-wide pause on 429, dead-letter), `MergeReducer` (lineage-aware pointer arbitration, deterministic fork winner, tombstone-vs-edit, idempotent replay), `SyncEngine` (seal → upload → fetch → replay → download). 26 tests. |
+| `vault_drive` | `GoogleDriveCloudProvider` over `googleapis` (drive.appdata, opaque names, routing-only `appProperties`, name-idempotent upload), `GoogleDriveAuth`, §9.7 error classification. 11 tests over an in-memory Drive backend. |
+| `vault_app_core` (sync) | `SyncController` (`SyncQueuePort`: debounced kicks, pause-on-429, status stream) + `SyncSetup` (keyring upload/restore, §9.9). 7 + new tests. |
 
 ### Security posture of the current build
 
@@ -45,12 +47,17 @@ The composition root probes `dokki/vault_imaging` at boot and falls back to the 
 - `EnvelopePurpose.meta` (6) added for `title_enc`/`note_enc`/`tags_enc`.
 - `sync_log_ops` table added as the durable pre-seal buffer of the local op log.
 - `ThumbnailIndex` port added so the thumbnail cache never touches the database directly.
-- Sync op-log *emission* from use cases is deferred to Phase 7 along with the engine.
+- Sync op-log *emission* happens inside `EntryRepositoryImpl` transactions (§10.5): every mutation appends its op and kicks the `SyncQueuePort` after commit.
 - The keyring is a JSON file outside the database (see above); the doc's `keyring.bin` sealed copy is the cloud form (Phase 7).
 - `KeyManager.deriveDbKey()` and `importKeyring(pin:)` were added to the port: SQLCipher needs raw bytes, and a bootstrap needs a new PIN to wrap under.
 - `VaultEntrySummary.coverVersionId` (the first live asset's current version) is part of the list read model, so the grid renders thumbnails from one query and follows rotations/reorders live.
 - `RasterEngine` port added (prepare/encode over a `BlobHandle`) so the export pipeline never holds a bitmap in Dart; `ExportSourceResolver` port added so the engine resolves evicted versions through the re-materialization use case without importing `vault_app_core`.
 - Export artifacts are sealed blobs (`StorageClass.exportArtifact`) shared through a swept `ShareCache` with neutral filenames (`dokki-<id8>.<ext>`); the share sheet is the only place plaintext leaves the vault (A8).
+- `AddVersionOp` carries the blob-row fields (`blobKeyEpoch`, `blobWrappedDekBase64`, `blobCiphertextSha256`, `blobCiphertextSize`): the receiver's FK demands a `blobs` row before the version row, and the file may not be downloaded for days.
+- Pointer arbitration (`ASSET_CURRENT`) uses **lineage** to tell a fast-forward from a fork: if our pointer is an ancestor of the incoming version, the remote saw our state. This replaces §9.4's full observed-HLC causality for v1; `ENTRY_FIELD`, `PAGE_ORDER` and `ASSET_SET` conflicts are simplified to LWW-by-HLC (loser state survives in the op log). Deterministic convergence (P5/P6) is unaffected.
+- Segment payloads are JSONL (named fields, unknown-op preserving) behind a codec seam, not CBOR; §9.6's forward-compat rules are honoured either way.
+- Drive uploads rely on the googleapis library's resumable handling plus name-idempotent retries; manual `resume_token` plumbing is deferred.
+- Background `SyncWorker` is **not shipped in v1** (R15 accepted): sync runs on app open, after every commit (debounced kick), and on demand. A headless WorkManager job cannot open the SQLCipher database without the user-auth-bound Keystore key — that is the design working as intended, not a bug.
 
 ## Development
 

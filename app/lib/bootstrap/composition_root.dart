@@ -29,11 +29,13 @@ import 'package:uuid/uuid.dart';
 import 'package:vault_app_core/vault_app_core.dart';
 import 'package:vault_crypto/vault_crypto.dart';
 import 'package:vault_domain/vault_domain.dart';
+import 'package:vault_drive/vault_drive.dart';
 import 'package:vault_export/vault_export.dart';
 import 'package:vault_imaging/vault_imaging.dart';
 import 'package:vault_pdf/vault_pdf.dart';
 import 'package:vault_persistence/vault_persistence.dart';
 import 'package:vault_storage/vault_storage.dart';
+import 'package:vault_sync/vault_sync.dart';
 
 import 'app_boot.dart';
 import 'app_graph.dart';
@@ -217,6 +219,12 @@ Future<AppBoot> composeBoot() async {
     activeKeyEpoch: activeEpoch,
   );
 
+  // ── Sync (§9): the cloud provider and Drive auth exist from boot; the
+  //    engine is wired per unlocked vault. Nothing here ever sends
+  //    plaintext — the provider's `put` only sees sealed bytes (§9.1).
+  final driveAuth = GoogleDriveAuth();
+  final cloud = GoogleDriveCloudProvider(apiFactory: driveAuth.api);
+
   final log = VaultLog(
     sink: kDebugMode ? const ConsoleLogSink() : const DeveloperLogSink(),
     debugEnabled: kDebugMode,
@@ -253,12 +261,13 @@ Future<AppBoot> composeBoot() async {
         return Err(device.errOrNull!);
       }
       final deviceId = device.okOrNull!;
-
-      final entries = EntryRepositoryImpl(
-        database,
-        activeKeyEpoch: activeEpoch,
-        crypto: crypto,
+      final context = VaultContext(
+        deviceId: deviceId,
+        clock: clock,
+        ids: ids,
+        random: random,
       );
+
       final blobStore = FileBlobStore(
         rootDir: filesRoot,
         crypto: crypto,
@@ -266,6 +275,38 @@ Future<AppBoot> composeBoot() async {
         activeKeyEpoch: activeEpoch,
       );
       await blobStore.sweepPartialWrites();
+
+      // ── Sync engine + controller (§9): kicks land here after every
+      //    commit; cycles run debounced, on app open, and on demand.
+      final engine = SyncEngine(
+        deviceId: deviceId,
+        syncState: syncState,
+        apply: SyncApplyRepositoryImpl(database),
+        blobStore: blobStore,
+        cloud: cloud,
+        crypto: crypto,
+        ids: ids,
+        clock: clock,
+        random: random,
+      );
+      final controller = SyncController(
+        runner: SyncEngineRunner(engine),
+        syncState: syncState,
+        context: context,
+      );
+      final syncSetup = SyncSetup(
+        keyManager: keyManager,
+        crypto: crypto,
+        cloud: cloud,
+        activeKeyEpoch: activeEpoch,
+      );
+
+      final entries = EntryRepositoryImpl(
+        database,
+        activeKeyEpoch: activeEpoch,
+        crypto: crypto,
+        queuePort: controller,
+      );
       final plaintext = _PlaintextAdapter(blobStore);
       final sealedFiles = _SealedFilesAdapter(blobStore);
       final images = nativeImaging
@@ -281,12 +322,6 @@ Future<AppBoot> composeBoot() async {
         images: images,
         clock: clock,
         ids: ids,
-      );
-      final context = VaultContext(
-        deviceId: deviceId,
-        clock: clock,
-        ids: ids,
-        random: random,
       );
       final importer = AssetImporter(
         context: context,
@@ -390,6 +425,9 @@ Future<AppBoot> composeBoot() async {
           blobStore: blobStore,
           exports: exports,
           prepareShare: prepareShare,
+          sync: controller,
+          syncSetup: syncSetup,
+          syncLink: _DriveSyncLink(driveAuth, syncSetup),
         ),
       );
     });
@@ -411,7 +449,59 @@ Future<AppBoot> composeBoot() async {
       return opened;
     },
     closeVault: closeVault,
+    restoreFromDrive: ({required pin, required recoveryPassphrase}) async {
+      final account = await driveAuth.signIn();
+      if (account == null) {
+        return const Err(SyncAuthRequired());
+      }
+      final setup = SyncSetup(
+        keyManager: keyManager,
+        crypto: crypto,
+        cloud: cloud,
+        activeKeyEpoch: activeEpoch,
+      );
+      final restored = await setup.restoreKeyring(
+        pin: pin,
+        recoveryPassphrase: recoveryPassphrase,
+      );
+      if (restored.isErr) {
+        return restored;
+      }
+      // The vault is now unlocked with the restored MK; opening it is the
+      // caller's next step, followed by a sync cycle that replays the log.
+      return const Ok(null);
+    },
   );
+}
+
+/// The composition root's [SyncLink] over the Drive auth (§9.9).
+final class _DriveSyncLink implements SyncLink {
+  const _DriveSyncLink(this._auth, this._setup);
+
+  final GoogleDriveAuth _auth;
+  final SyncSetup _setup;
+
+  @override
+  Future<CloudAuthState> authState() async =>
+      await _auth.account() == null
+      ? CloudAuthState.signedOut
+      : CloudAuthState.signedIn;
+
+  @override
+  Future<Result<void, VaultFailure>> connect({required DeviceId deviceId}) async {
+    final account = await _auth.signIn();
+    if (account == null) {
+      return const Err(SyncAuthRequired());
+    }
+    // §9.9 step 2: the keyring is what makes a wiped device recoverable.
+    return _setup.uploadKeyring(deviceId: deviceId);
+  }
+
+  @override
+  Future<Result<void, VaultFailure>> disconnect() async {
+    await _auth.signOut();
+    return const Ok(null);
+  }
 }
 
 /// A vault created before the keyring file existed kept its epochs in the

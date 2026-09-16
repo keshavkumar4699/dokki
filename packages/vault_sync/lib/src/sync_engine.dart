@@ -276,3 +276,20 @@ final class MergeReport {
   final int segmentsApplied;
   final int conflictsRaised;
 }
+
+/// Adapts the engine to the domain's `SyncRunner` port, so the
+/// application layer can drive cycles without importing this package
+/// (§3).
+final class SyncEngineRunner implements SyncRunner {
+  const SyncEngineRunner(this._engine);
+
+  final SyncEngine _engine;
+
+  @override
+  Future<Result<SyncCycleOutcome, VaultFailure>> syncNow({
+    CancellationToken? cancel,
+  }) => _engine.syncNow(cancel: cancel).map(
+    (report) =>
+        report.paused ? SyncCycleOutcome.paused : SyncCycleOutcome.done,
+  );
+}

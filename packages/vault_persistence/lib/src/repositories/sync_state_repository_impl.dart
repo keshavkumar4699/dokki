@@ -14,6 +14,7 @@ import '../daos/sync_dao.dart';
 import '../daos/versions_dao.dart';
 import '../database/app_database.dart';
 import '../error_boundary.dart';
+import 'op_log_append.dart';
 
 /// Drift-backed [SyncStateRepository].
 final class SyncStateRepositoryImpl implements SyncStateRepository {
@@ -262,49 +263,10 @@ final class SyncStateRepositoryImpl implements SyncStateRepository {
   Future<Result<void, VaultFailure>> appendLogOp(
     SyncOp op, {
     required DateTime now,
-  }) => guardDb('appendLogOp', () {
-    final deviceId = op.origin;
-    final hlc = op.hlc.toSortableString();
-    final opJson = encodeSyncOp(op);
-    return _db.transaction(() async {
-      final openSegment = await _sync.openSegmentRow(deviceId);
-      if (openSegment == null) {
-        final seq = await _sync.maxSegmentSeq(deviceId) + 1;
-        await _sync.insertSegmentRow(
-          SyncLogSegmentsCompanion.insert(
-            deviceId: deviceId,
-            seq: seq,
-            remoteName: _segmentRemoteName(deviceId, seq),
-            opCount: const Value(1),
-            hlcLow: Value(hlc),
-            hlcHigh: Value(hlc),
-          ),
-        );
-        await _sync.insertOpRow(
-          SyncLogOpsCompanion.insert(
-            deviceId: deviceId,
-            opJson: opJson,
-            hlc: hlc,
-            seq: seq,
-          ),
-        );
-      } else {
-        await _sync.appendToOpenSegment(
-          deviceId,
-          hlcHigh: hlc,
-          opCount: openSegment.opCount + 1,
-        );
-        await _sync.insertOpRow(
-          SyncLogOpsCompanion.insert(
-            deviceId: deviceId,
-            opJson: opJson,
-            hlc: hlc,
-            seq: openSegment.seq,
-          ),
-        );
-      }
-    });
-  });
+  }) => guardDb(
+    'appendLogOp',
+    () => _db.transaction(() => appendOpRows(_sync, op)),
+  );
 
   @override
   Future<Result<LogSegmentRecord?, VaultFailure>> openSegment(
@@ -694,8 +656,4 @@ final class SyncStateRepositoryImpl implements SyncStateRepository {
     purgeAfter: row.purgeAfter,
   );
 
-  String _segmentRemoteName(String deviceId, int seq) {
-    final short = deviceId.length <= 8 ? deviceId : deviceId.substring(0, 8);
-    return 'l_${short}_${seq.toString().padLeft(7, '0')}.bin';
-  }
 }

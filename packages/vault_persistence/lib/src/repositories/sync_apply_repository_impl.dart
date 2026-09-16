@@ -132,7 +132,9 @@ final class SyncApplyRepositoryImpl implements SyncApplyPort {
             : Value(_blobOrNull(sealedTags)),
         updatedAt: Value(createdAt),
         updatedHlc: Value(updatedHlc.toSortableString()),
-        deletedAt: Value(deletedAt),
+        // An upsert without an explicit tombstone must NOT resurrect a
+        // locally deleted entry (deletion flows through TombstoneOp).
+        deletedAt: deletedAt == null ? const Value.absent() : Value(deletedAt),
       ),
     );
     return true;
@@ -176,7 +178,7 @@ final class SyncApplyRepositoryImpl implements SyncApplyPort {
         ordinal: Value(ordinal),
         updatedAt: Value(createdAt),
         updatedHlc: Value(updatedHlc.toSortableString()),
-        deletedAt: Value(deletedAt),
+        deletedAt: deletedAt == null ? const Value.absent() : Value(deletedAt),
       ),
     );
     return true;

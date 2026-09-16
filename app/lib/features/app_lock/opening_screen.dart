@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vault_domain/vault_domain.dart';
 
+import '../../bootstrap/app_graph.dart';
 import '../../bootstrap/providers.dart';
 import '../../core_ui/failure_messages.dart';
 import '../../core_ui/motion.dart';
@@ -36,10 +37,19 @@ class _OpeningScreenState extends ConsumerState<OpeningScreen> {
     if (!mounted) {
       return;
     }
-    result.fold(
-      (graph) => ref.read(openVaultProvider.notifier).state = graph,
-      (failure) => setState(() => _failure = failure),
-    );
+    result.fold((graph) {
+      ref.read(openVaultProvider.notifier).state = graph;
+      // Foreground sync on app open (§16 R15): background jobs are a
+      // bonus, never the only path. Fire-and-forget; the controller
+      // debounces overlapping kicks from the first edits.
+      _kickSync(graph);
+    }, (failure) => setState(() => _failure = failure));
+  }
+
+  Future<void> _kickSync(AppGraph graph) async {
+    if (await graph.syncLink.authState() == CloudAuthState.signedIn) {
+      await graph.sync.syncNow();
+    }
   }
 
   @override

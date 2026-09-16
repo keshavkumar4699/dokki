@@ -1,6 +1,7 @@
 /// `EntryRepository` implementation over Drift (§10).
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:convert/convert.dart' show hex;
@@ -14,23 +15,32 @@ import '../daos/versions_dao.dart';
 import '../database/app_database.dart';
 import '../error_boundary.dart';
 import '../export_request_codec.dart';
+import 'op_log_append.dart';
 
 /// Drift-backed [EntryRepository].
 ///
 /// `title`/`note`/`tags` are sealed under `K_meta` via [CryptoEngine] when
 /// one is supplied (§6). Without one — the Phase 1 debug configuration —
 /// the `*_enc` columns hold plaintext UTF-8 bytes.
+///
+/// Every mutation ALSO appends its sync op to the local op log inside the
+/// same transaction (§9.3, §10.5), so the log can never drift from the
+/// state. After commit, the [SyncQueuePort] is kicked — persistence never
+/// calls the sync engine directly (§3 rule 3).
 final class EntryRepositoryImpl implements EntryRepository {
   EntryRepositoryImpl(
     this._db, {
     required int Function() activeKeyEpoch,
     CryptoEngine? crypto,
+    SyncQueuePort? queuePort,
   }) : _activeKeyEpoch = activeKeyEpoch,
-       _crypto = crypto;
+       _crypto = crypto,
+       _queuePort = queuePort;
 
   final AppDatabase _db;
   final int Function() _activeKeyEpoch;
   final CryptoEngine? _crypto;
+  final SyncQueuePort? _queuePort;
 
   EntriesDao get _entries => _db.entriesDao;
   VersionsDao get _versions => _db.versionsDao;
@@ -62,7 +72,21 @@ final class EntryRepositoryImpl implements EntryRepository {
             ),
           );
           await _insertNewAsset(entry.asset);
+          await _emit(
+            UpsertEntryOp(
+              hlc: entry.hlc,
+              origin: entry.originDevice,
+              id: entry.id,
+              type: entry.type.dbValue,
+              sealedTitleBase64: _b64OrNull(titleEnc),
+              sealedNoteBase64: _b64OrNull(noteEnc),
+              sealedTagsBase64: _b64OrNull(tagsEnc),
+              createdAtMillis: entry.createdAt.millisecondsSinceEpoch,
+              deletedAtMillis: null,
+            ),
+          );
         });
+        _kick();
         return _requireEntry(entry.id);
       });
 
@@ -113,7 +137,7 @@ final class EntryRepositoryImpl implements EntryRepository {
         ? null
         : await _sealText(jsonEncode(update.tags));
     await _db.transaction(() async {
-      await _requireEntryRow(id);
+      final row = await _requireEntryRow(id);
       await _entries.updateEntryRow(
         id,
         VaultEntriesCompanion(
@@ -130,7 +154,25 @@ final class EntryRepositoryImpl implements EntryRepository {
           updatedHlc: Value(update.hlc.toSortableString()),
         ),
       );
+      // Only the changed fields travel; null means "unchanged" to the
+      // merge reducer, and the type is always carried for late joiners.
+      await _emit(
+        UpsertEntryOp(
+          hlc: update.hlc,
+          origin: update.hlc.deviceId,
+          id: id,
+          type: row.type,
+          sealedTitleBase64: update.title == null
+              ? null
+              : _b64OrNull(sealedTitle),
+          sealedNoteBase64: update.note == null ? null : _b64OrNull(sealedNote),
+          sealedTagsBase64: update.tags == null ? null : _b64OrNull(sealedTags),
+          createdAtMillis: update.updatedAt.millisecondsSinceEpoch,
+          deletedAtMillis: null,
+        ),
+      );
     });
+    _kick();
   });
 
   @override
@@ -151,6 +193,15 @@ final class EntryRepositoryImpl implements EntryRepository {
         ),
       );
       await _insertTombstone(tombstone);
+      await _emit(
+        TombstoneOp(
+          hlc: tombstone.deletedHlc,
+          origin: tombstone.originDevice,
+          entityKind: TombstoneEntityKind.entry,
+          entityId: id,
+        ),
+      );
+      _kick();
     }),
   );
 
@@ -163,6 +214,7 @@ final class EntryRepositoryImpl implements EntryRepository {
           await _insertNewAsset(asset);
           await _touchEntry(asset.entryId, asset.hlc, asset.createdAt);
         });
+        _kick();
         return _requireAsset(asset.id);
       });
 
@@ -189,6 +241,15 @@ final class EntryRepositoryImpl implements EntryRepository {
       await _entries.markAssetDeleted(id, now);
       await _touchEntry(row.entryId, tombstone.deletedHlc, now);
       await _insertTombstone(tombstone);
+      await _emit(
+        TombstoneOp(
+          hlc: tombstone.deletedHlc,
+          origin: tombstone.originDevice,
+          entityKind: TombstoneEntityKind.asset,
+          entityId: id,
+        ),
+      );
+      _kick();
     }),
   );
 
@@ -232,6 +293,15 @@ final class EntryRepositoryImpl implements EntryRepository {
         await _entries.setAssetOrdinal(orderedAssetIds[i], i);
       }
       await _touchEntry(entryId, hlc, now);
+      await _emit(
+        ReorderPagesOp(
+          hlc: hlc,
+          origin: hlc.deviceId,
+          entryId: entryId,
+          assetIds: orderedAssetIds,
+        ),
+      );
+      _kick();
     }),
   );
 
@@ -296,7 +366,26 @@ final class EntryRepositoryImpl implements EntryRepository {
         await _versions.markBlobsEvicted(evictedBlobs);
       }
       await _touchEntry(assetRow.entryId, commit.hlc, commit.now);
+      await _emit(_addVersionOpFrom(version, blob));
+      await _emit(
+        SetCurrentOp(
+          hlc: commit.hlc,
+          origin: commit.hlc.deviceId,
+          assetId: commit.assetId,
+          versionId: version.id,
+        ),
+      );
+      for (final evictedId in commit.evictable) {
+        await _emit(
+          EvictVersionOp(
+            hlc: commit.hlc,
+            origin: commit.hlc.deviceId,
+            versionId: evictedId,
+          ),
+        );
+      }
     });
+    _kick();
     return CommitOutcome(
       asset: await _requireAsset(commit.assetId),
       purgableBlobIds: purgableBlobIds,
@@ -343,7 +432,16 @@ final class EntryRepositoryImpl implements EntryRepository {
         ),
       );
       await _touchEntry(assetRow.entryId, hlc, now);
+      await _emit(
+        SetCurrentOp(
+          hlc: hlc,
+          origin: hlc.deviceId,
+          assetId: assetId,
+          versionId: versionId,
+        ),
+      );
     });
+    _kick();
     return _requireAsset(assetId);
   });
 
@@ -695,6 +793,26 @@ final class EntryRepositoryImpl implements EntryRepository {
       AssetsCompanion(currentVersionId: Value(version.id)),
     );
     await _enqueueUpload(blobId, asset.createdAt);
+    await _emit(
+      UpsertAssetOp(
+        hlc: asset.hlc,
+        origin: asset.originDevice,
+        id: asset.id,
+        entryId: asset.entryId,
+        role: asset.role.dbValue,
+        ordinal: asset.ordinal,
+        createdAtMillis: asset.createdAt.millisecondsSinceEpoch,
+      ),
+    );
+    await _emit(_addVersionOpFrom(version, asset.blob));
+    await _emit(
+      SetCurrentOp(
+        hlc: asset.hlc,
+        origin: asset.originDevice,
+        assetId: asset.id,
+        versionId: version.id,
+      ),
+    );
   }
 
   Future<void> _enqueueUpload(String blobId, DateTime now) =>
@@ -707,6 +825,42 @@ final class EntryRepositoryImpl implements EntryRepository {
           nextAttemptAt: now,
           createdAt: now,
         ),
+      );
+
+  // ── Sync op emission (§9.3) ────────────────────────────────────────────
+
+  /// Appends [op] to the local op log inside the current transaction.
+  Future<void> _emit(SyncOp op) => appendOpRows(_sync, op);
+
+  /// Wakes the sync engine AFTER the transaction committed (§3 rule 3).
+  void _kick() {
+    unawaited(_queuePort?.kick());
+  }
+
+  String? _b64OrNull(List<int>? bytes) =>
+      bytes == null ? null : base64Encode(bytes);
+
+  AddVersionOp _addVersionOpFrom(AssetVersion version, BlobRef? blob) =>
+      AddVersionOp(
+        hlc: version.createdHlc,
+        origin: version.originDevice,
+        id: version.id,
+        assetId: version.assetId,
+        parentVersionId: version.parentVersionId,
+        kind: version.kind.dbValue,
+        seq: version.seq,
+        blobId: version.blobId,
+        recipeJson: version.recipe?.toJson(),
+        recipeDeterministic: version.recipeDeterministic,
+        meta: version.meta,
+        createdAtMillis: version.createdAt.millisecondsSinceEpoch,
+        evictedAtMillis: version.evictedAt?.millisecondsSinceEpoch,
+        blobKeyEpoch: blob?.keyEpoch,
+        blobWrappedDekBase64: blob == null
+            ? null
+            : base64Encode(blob.wrappedDek),
+        blobCiphertextSha256: blob?.ciphertextSha256,
+        blobCiphertextSize: blob?.ciphertextSize,
       );
 
   Future<void> _touchEntry(String entryId, Hlc hlc, DateTime now) =>

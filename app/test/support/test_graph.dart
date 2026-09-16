@@ -45,6 +45,8 @@ final class TestGraph {
           ? Ok(graph)
           : const Err(KeyUnavailable(KeyUnavailableReason.vaultLocked)),
       closeVault: () async => closeCount++,
+      restoreFromDrive: ({required pin, required recoveryPassphrase}) async =>
+          const Ok(null),
     );
     graph = AppGraph(
       context: context,
@@ -85,6 +87,18 @@ final class TestGraph {
           discard: () async {},
         ),
       ),
+      sync: SyncController(
+        runner: FakeSyncRunner(),
+        syncState: FakeSyncStateRepository(),
+        context: context,
+      ),
+      syncSetup: SyncSetup(
+        keyManager: keys,
+        crypto: FakeCryptoEngine(),
+        cloud: FakeCloudProvider(),
+        activeKeyEpoch: () => 1,
+      ),
+      syncLink: const FakeSyncLink(),
     );
   }
 

@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dokki/bootstrap/app_graph.dart';
 import 'package:vault_app_core/vault_app_core.dart';
 import 'package:vault_domain/vault_domain.dart';
 
@@ -338,6 +339,85 @@ final class FakeExportEngine implements ExportEngine {
       ),
     );
   }
+}
+
+// ── Sync ────────────────────────────────────────────────────────────────
+
+/// A `SyncRunner` that records calls and never touches a cloud.
+final class FakeSyncRunner implements SyncRunner {
+  int calls = 0;
+  SyncCycleOutcome outcome = SyncCycleOutcome.done;
+
+  @override
+  Future<Result<SyncCycleOutcome, VaultFailure>> syncNow({
+    CancellationToken? cancel,
+  }) async {
+    calls++;
+    return Ok(outcome);
+  }
+}
+
+/// Only the status reads are real; everything else throws if reached.
+final class FakeSyncStateRepository implements SyncStateRepository {
+  @override
+  Future<Result<List<SyncQueueItem>, VaultFailure>> pendingOps() async =>
+      const Ok([]);
+
+  @override
+  Future<Result<List<Conflict>, VaultFailure>> openConflicts() async =>
+      const Ok([]);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+final class FakeCloudProvider implements CloudProvider {
+  @override
+  String get providerId => 'fake';
+
+  @override
+  Future<Result<CloudAuthState, VaultFailure>> authState() async =>
+      const Ok(CloudAuthState.signedOut);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+final class FakeCryptoEngine implements CryptoEngine {
+  @override
+  Future<Result<List<int>, VaultFailure>> sealSmall(
+    List<int> plaintext, {
+    required int keyEpoch,
+    required EnvelopePurpose purpose,
+  }) async => Ok(plaintext);
+
+  @override
+  Future<Result<List<int>, VaultFailure>> openSmall(
+    List<int> ciphertext, {
+    required EnvelopePurpose expectedPurpose,
+  }) async => Ok(ciphertext);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+/// A signed-out `SyncLink` for widget tests.
+final class FakeSyncLink implements SyncLink {
+  const FakeSyncLink();
+
+  @override
+  Future<CloudAuthState> authState() async => CloudAuthState.signedOut;
+
+  @override
+  Future<Result<void, VaultFailure>> connect({
+    required DeviceId deviceId,
+  }) async => const Ok(null);
+
+  @override
+  Future<Result<void, VaultFailure>> disconnect() async => const Ok(null);
 }
 
 // ── KeyManager ──────────────────────────────────────────────────────────

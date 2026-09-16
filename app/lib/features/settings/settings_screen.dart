@@ -10,6 +10,7 @@ import '../../bootstrap/providers.dart';
 import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
+import 'sync_section.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -100,13 +101,7 @@ class SettingsScreen extends ConsumerWidget {
         title: const Text('Lock now'),
         onTap: () => ref.read(sessionProvider).lock(),
       ),
-      const SectionHeader('Sync'),
-      const ListTile(
-        leading: Icon(Icons.cloud_off_outlined),
-        title: Text('Google Drive'),
-        subtitle: Text('Off. Encrypted sync arrives in a later release.'),
-        enabled: false,
-      ),
+      const SyncSection(),
       const SectionHeader('About'),
       ListTile(
         leading: const Icon(Icons.info_outline),

@@ -689,4 +689,81 @@ void main() {
       expect(unwrap(await repo.findExportRecord('x4'))!.artifactBlobId, isNull);
     });
   });
+
+  group('sync op emission (§9.3, §10.5)', () {
+    Future<List<SyncOp>> emittedOps() async {
+      final syncState = SyncStateRepositoryImpl(db);
+      return unwrap(await syncState.openSegmentOps(deviceA));
+    }
+
+    test('createEntry emits entry, asset, version and pointer ops', () async {
+      unwrap(await repo.createEntry(fx.newEntry(EntryType.id)));
+      final ops = await emittedOps();
+      // HLC-sorted: entry first (its HLC was minted before the asset's).
+      expect(ops.map((op) => op.opType), [
+        'upsertEntry',
+        'upsertAsset',
+        'addVersion',
+        'setCurrent',
+      ]);
+      final entryOp = ops.whereType<UpsertEntryOp>().single;
+      expect(entryOp.origin, deviceA);
+      expect(entryOp.sealedTitleBase64, isNotNull);
+      final addOp = ops.whereType<AddVersionOp>().single;
+      expect(addOp.blobKeyEpoch, isNotNull);
+      expect(addOp.blobWrappedDekBase64, isNotNull);
+      expect(addOp.blobCiphertextSha256, isNotNull);
+    });
+
+    test('commitVersion emits version, pointer and eviction ops', () async {
+      final created = unwrap(await repo.createEntry(fx.newEntry(EntryType.photo)));
+      final asset = created.assets.single;
+      final (version, blob) = fx.derived(
+        assetId: asset.id,
+        parentId: asset.currentVersionId,
+        seq: 2,
+      );
+      unwrap(
+        await repo.commitVersion(
+          VersionCommit(
+            assetId: asset.id,
+            version: version,
+            hlc: fx.nextHlc(),
+            now: fx.clock.now(),
+            pinsToAdd: const [],
+            pinsToRemove: const [],
+            evictable: const {},
+            blob: blob,
+          ),
+        ),
+      );
+      final ops = await emittedOps();
+      expect(
+        ops.where((op) => op.opType == 'addVersion'),
+        hasLength(2),
+      );
+      expect(ops.whereType<SetCurrentOp>().last.versionId, version.id);
+    });
+
+    test('deleteEntry emits a tombstone op', () async {
+      final created = unwrap(await repo.createEntry(fx.newEntry(EntryType.photo)));
+      unwrap(
+        await repo.deleteEntry(
+          created.id,
+          Tombstone.of(
+            entityKind: TombstoneEntityKind.entry,
+            entityId: created.id,
+            deletedHlc: fx.nextHlc(),
+            originDevice: deviceA,
+            deletedAt: fx.clock.now(),
+          ),
+          now: fx.clock.now(),
+        ),
+      );
+      final ops = await emittedOps();
+      final tombstone = ops.whereType<TombstoneOp>().single;
+      expect(tombstone.entityKind, TombstoneEntityKind.entry);
+      expect(tombstone.entityId, created.id);
+    });
+  });
 }

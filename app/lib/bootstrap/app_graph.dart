@@ -35,6 +35,17 @@ final class ShareHandle {
 typedef PrepareShare =
     Future<Result<ShareHandle, VaultFailure>> Function(ExportId exportId);
 
+/// The UI-facing Google Drive link: connect, disconnect, and the current
+/// auth state. Sync engine internals stay behind [SyncController].
+abstract interface class SyncLink {
+  Future<CloudAuthState> authState();
+
+  /// Interactive sign-in (user tapped Connect); then uploads the keyring.
+  Future<Result<void, VaultFailure>> connect({required DeviceId deviceId});
+
+  Future<Result<void, VaultFailure>> disconnect();
+}
+
 final class AppGraph {
   const AppGraph({
     required this.context,
@@ -51,6 +62,9 @@ final class AppGraph {
     required this.blobStore,
     required this.exports,
     required this.prepareShare,
+    required this.sync,
+    required this.syncSetup,
+    required this.syncLink,
   });
 
   final VaultContext context;
@@ -71,4 +85,13 @@ final class AppGraph {
 
   final ExportUseCases exports;
   final PrepareShare prepareShare;
+
+  /// Drives sync cycles and exposes status. Kick-debounced by persistence.
+  final SyncController sync;
+
+  /// The keyring's cloud round trip (§9.9).
+  final SyncSetup syncSetup;
+
+  /// The Google Drive connect/disconnect surface.
+  final SyncLink syncLink;
 }
