@@ -141,6 +141,8 @@ class SettingsScreen extends ConsumerWidget {
         onTap: () => ref.read(sessionProvider).lock(),
       ),
       const SyncSection(),
+      const SectionHeader('Storage'),
+      _StorageCard(),
       const SectionHeader('About'),
       ListTile(
         leading: const Icon(Icons.info_outline),
@@ -157,6 +159,68 @@ class SettingsScreen extends ConsumerWidget {
           for (var i = 0; i < rows.length; i++)
             FadeSlideIn.staggered(i, child: rows[i]),
         ],
+      ),
+    );
+  }
+}
+
+/// §7.6 storage accounting: what the vault holds and how much room is
+/// left, honestly broken down by class.
+class _StorageCard extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final report = ref.watch(storageBudgetProvider).value;
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    if (report == null) {
+      return const ListTile(
+        leading: Icon(Icons.pie_chart_outline),
+        title: Text('Storage'),
+        subtitle: Text('Measuring…'),
+      );
+    }
+    String mb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    final free = report.freeBytes;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: DokkiSpace.lg),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(DokkiSpace.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Vault storage', style: text.titleSmall),
+              const SizedBox(height: DokkiSpace.sm),
+              Text(
+                'Documents ${mb(report.assetBytes)} · thumbnails '
+                '${mb(report.thumbnailBytes)} · exports '
+                '${mb(report.exportBytes)} · sync ${mb(report.logBytes)}',
+                style: text.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: DokkiSpace.xs),
+              Text(
+                free == null
+                    ? 'Total ${mb(report.totalBytes)}'
+                    : 'Total ${mb(report.totalBytes)} · ${mb(free)} free',
+                style: text.bodySmall?.copyWith(
+                  color: report.underPressure
+                      ? scheme.error
+                      : scheme.onSurfaceVariant,
+                ),
+              ),
+              if (report.underPressure) ...[
+                const SizedBox(height: DokkiSpace.xs),
+                Text(
+                  'Storage is nearly full. Thumbnails shrink first; new '
+                  'imports pause until there is room.',
+                  style: text.bodySmall?.copyWith(color: scheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

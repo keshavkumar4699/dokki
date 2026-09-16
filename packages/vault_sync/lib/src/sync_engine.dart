@@ -65,8 +65,12 @@ final class SyncEngine {
   final RandomSource random;
   final RetryPolicy retry;
 
-  static const _logsPrefix = 'v1/logs/';
-  static const _blobsPrefix = 'v1/blobs/';
+  /// The remote layout is FLAT inside `appDataFolder` (§9.2 names are
+  /// opaque; folders would add nothing but query cost). Segments are
+  /// `l_<dev>_<seq>.bin`, blobs `b_<uuid>.bin`; the format version lives
+  /// in the sealed payload header, not in names.
+  static const _logsPrefix = 'l_';
+  static const _blobsPrefix = 'b_';
 
   /// Our device id shortened the same way segment names shorten it (§9.2).
   String get _deviceShort =>
@@ -260,8 +264,9 @@ final class SyncEngine {
   }
 
   /// `l_<devShort>_<seq7>.bin` → (deviceShort, seq) (§9.2 opaque names).
+  /// Device ids are UUIDs — the short form keeps hyphens.
   ({DeviceId deviceIdShort, int seq})? _parseSegmentName(String name) {
-    final match = RegExp(r'^l_([A-Za-z0-9]+)_(\d+)\.bin$').firstMatch(name);
+    final match = RegExp(r'^l_([A-Za-z0-9-]+)_(\d+)\.bin$').firstMatch(name);
     if (match == null) {
       return null;
     }

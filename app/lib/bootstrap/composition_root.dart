@@ -16,6 +16,7 @@
 /// and `RandomSource`.
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -329,10 +330,21 @@ Future<AppBoot> composeBoot() async {
         clock: clock,
         ids: ids,
       );
+      // §7.6: storage accounting. The import path refuses before writing
+      // when the floor is crossed; pressure also trims the thumbnail LRU
+      // (fully regenerable) on this open.
+      final budget = StorageBudgetImpl(
+        paths: blobStore.paths,
+        freeSpace: () async {
+          final bytes = await const NativeSecurity().freeDiskSpace();
+          return bytes < 0 ? null : bytes;
+        },
+      );
       final importer = AssetImporter(
         context: context,
         blobStore: blobStore,
         images: images,
+        budget: budget,
       );
       final versionServices = VersionServices(
         context: context,
@@ -366,6 +378,14 @@ Future<AppBoot> composeBoot() async {
       released.fold((_) {}, (failure) {
         log.w('export artifact GC skipped [${failure.code}]');
       });
+      // §7.6 pressure: below the floor, thumbnails (fully regenerable)
+      // shrink to a small cache before anything else happens.
+      final pressure = await budget.check();
+      pressure.fold((report) {
+        if (report.underPressure) {
+          unawaited(thumbnails.trimToBudget(32 * 1024 * 1024));
+        }
+      }, (_) {});
 
       Future<Result<ShareHandle, VaultFailure>> prepareShare(
         ExportId exportId,
@@ -481,6 +501,7 @@ Future<AppBoot> composeBoot() async {
           syncSetup: syncSetup,
           syncLink: _DriveSyncLink(driveAuth, syncSetup),
           rotateKeys: rotateKeys,
+          storage: budget,
         ),
       );
     });

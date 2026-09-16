@@ -105,6 +105,7 @@ class PlatformAndroidPlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
             }
             "hasDeviceLock" -> result.success(hasDeviceLock())
             "rootSignals" -> result.success(rootSignals())
+            "freeDiskSpace" -> result.success(freeDiskSpace())
             else -> result.notImplemented()
         }
     }
@@ -131,6 +132,12 @@ class PlatformAndroidPlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
         val debuggable = (current.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (!debuggable) return false
         return Settings.Global.getInt(current.contentResolver, "dokki_allow_capture", 0) == 1
+    }
+
+    /** §7.6: free bytes on the vault's filesystem, for the storage budget. */
+    private fun freeDiskSpace(): Long {
+        val dir = context?.filesDir ?: return -1L
+        return android.os.StatFs(dir.absolutePath).availableBytes
     }
 
     /** §8.3: auth-bound Keystore keys need a secure lock screen. */

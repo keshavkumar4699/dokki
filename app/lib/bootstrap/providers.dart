@@ -113,6 +113,15 @@ final syncStatusProvider = StreamProvider<SyncStatus>(
   (ref) => ref.watch(appGraphProvider).sync.watchStatus(),
 );
 
+/// §7.6 storage accounting for the settings card.
+final storageBudgetProvider = FutureProvider<StorageBudgetReport>((ref) async {
+  final result = await ref.watch(appGraphProvider).storage.check();
+  return result.fold(
+    (report) => report,
+    (failure) => throw VaultFailureException(failure),
+  );
+});
+
 // ── Thumbnails ─────────────────────────────────────────────────────────────
 
 typedef ThumbnailKey = ({VersionId versionId, ThumbnailSizeClass size});

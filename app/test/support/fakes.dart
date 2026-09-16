@@ -404,6 +404,23 @@ final class FakeCryptoEngine implements CryptoEngine {
       throw UnimplementedError('${invocation.memberName}');
 }
 
+/// A `StorageBudget` that always reports plenty of room.
+final class FakeStorageBudget implements StorageBudget {
+  const FakeStorageBudget();
+
+  @override
+  Future<Result<StorageBudgetReport, VaultFailure>> check() async => const Ok(
+    StorageBudgetReport(
+      assetBytes: 1024,
+      thumbnailBytes: 512,
+      exportBytes: 0,
+      logBytes: 0,
+      freeBytes: 10 * 1024 * 1024 * 1024,
+      floorBytes: 300 * 1024 * 1024,
+    ),
+  );
+}
+
 /// A signed-out `SyncLink` for widget tests.
 final class FakeSyncLink implements SyncLink {
   const FakeSyncLink();

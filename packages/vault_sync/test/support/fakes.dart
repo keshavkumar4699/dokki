@@ -558,6 +558,18 @@ final class InMemorySyncState implements SyncStateRepository {
   }
 
   @override
+  Future<Result<LogSegmentRecord?, VaultFailure>> segmentForBlob(
+    BlobId blobId,
+  ) async {
+    for (final record in segments.values) {
+      if (record.blobId == blobId) {
+        return Ok(record);
+      }
+    }
+    return const Ok(null);
+  }
+
+  @override
   Future<Result<List<LogSegmentRecord>, VaultFailure>>
   unappliedSegments() async {
     final list = [

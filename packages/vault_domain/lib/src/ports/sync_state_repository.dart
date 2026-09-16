@@ -297,6 +297,13 @@ abstract interface class SyncStateRepository {
     required DateTime now,
   });
 
+  /// The segment row sealed into [blobId], if any — the executor uses
+  /// this to upload a segment under its `l_<dev>_<seq>.bin` name rather
+  /// than the generic blob name (§9.2).
+  Future<Result<LogSegmentRecord?, VaultFailure>> segmentForBlob(
+    BlobId blobId,
+  );
+
   Future<Result<List<LogSegmentRecord>, VaultFailure>> unappliedSegments();
 
   /// Ops of a segment, HLC-sorted.

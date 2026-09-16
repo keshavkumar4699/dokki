@@ -38,6 +38,7 @@ export 'src/ports/key_manager.dart';
 export 'src/ports/pdf_composer.dart';
 export 'src/ports/raster_engine.dart';
 export 'src/ports/rotation_blob_store.dart';
+export 'src/ports/storage_budget.dart';
 export 'src/ports/sync_apply_port.dart';
 export 'src/ports/sync_queue_port.dart';
 export 'src/ports/sync_runner.dart';

@@ -352,6 +352,16 @@ final class SyncStateRepositoryImpl implements SyncStateRepository {
   );
 
   @override
+  Future<Result<LogSegmentRecord?, VaultFailure>> segmentForBlob(
+    BlobId blobId,
+  ) => guardDb('segmentForBlob', () async {
+    final query = _db.select(_db.syncLogSegments)
+      ..where((t) => t.blobId.equals(blobId));
+    final row = await query.getSingleOrNull();
+    return row == null ? null : _segmentFrom(row);
+  });
+
+  @override
   Future<Result<List<LogSegmentRecord>, VaultFailure>> unappliedSegments() =>
       guardDb('unappliedSegments', () async {
         final rows = await _sync.unappliedSegments();

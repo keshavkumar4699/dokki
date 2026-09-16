@@ -153,7 +153,13 @@ final class SyncExecutor {
     }
     final handle = opened.okOrNull!;
     final existing = unwrapSync(await syncState.findCloudObject(blobId));
-    final remoteName = existing?.remoteName ?? _remoteNameFor(blobId);
+    // A sealed segment uploads under its `l_<dev>_<seq>.bin` name (§9.2);
+    // anything else is a plain blob (`b_<uuid>.bin`).
+    final segment = unwrapSync(await syncState.segmentForBlob(blobId));
+    final remoteName =
+        existing?.remoteName ??
+        segment?.remoteName ??
+        _remoteNameFor(blobId);
     unwrapSync(
       await syncState.upsertCloudObject(
         CloudObjectRecord(

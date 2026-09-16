@@ -25,6 +25,14 @@ final class NativeSecurity {
     return result ?? false;
   }
 
+  /// Free bytes on the vault's filesystem (§7.6); -1 when unmeasurable.
+  Future<int> freeDiskSpace() async {
+    final result = await guardChannel(
+      () => _channel.invokeMethod<int>('freeDiskSpace'),
+    );
+    return result ?? -1;
+  }
+
   /// Advisory root/debugger/emulator signals (§8.7 T4, Phase 9).
   Future<List<String>> rootSignals() async {
     final result = await guardChannel(

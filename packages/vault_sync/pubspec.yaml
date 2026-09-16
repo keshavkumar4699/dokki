@@ -18,4 +18,5 @@ dependencies:
     path: ../vault_domain
 
 dev_dependencies:
+  cryptography: ^2.7.0
   test: ^1.26.3

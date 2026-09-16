@@ -103,6 +103,7 @@ final class TestGraph {
       syncLink: const FakeSyncLink(),
       rotateKeys: ({required pin, required recoveryPassphrase}) async =>
           const Ok(null),
+      storage: const FakeStorageBudget(),
     );
   }
 

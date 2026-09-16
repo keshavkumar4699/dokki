@@ -34,11 +34,17 @@ final class AssetImporter {
     required this.context,
     required this.blobStore,
     required this.images,
+    this.budget,
   });
 
   final VaultContext context;
   final BlobStore blobStore;
   final ImageProcessor images;
+
+  /// §7.6: when present, imports are refused BEFORE writing if free space
+  /// is below the floor. Checking after writing 40 MB is how you end up
+  /// with corrupt partial blobs.
+  final StorageBudget? budget;
 
   /// Seals [source] and inspects it. Purges the blob if inspection fails.
   Future<Result<ImportedBlob, VaultFailure>> seal(
@@ -46,6 +52,16 @@ final class AssetImporter {
     ProgressSink? progress,
     CancellationToken? cancel,
   }) async {
+    final budget = this.budget;
+    if (budget != null) {
+      final pressure = await budget.check();
+      final report = pressure.okOrNull;
+      if (report != null && report.underPressure) {
+        return Err(
+          InsufficientStorage(source.byteSize, report.freeBytes ?? 0),
+        );
+      }
+    }
     final written = await blobStore.write(
       source.open(),
       storageClass: StorageClass.asset,

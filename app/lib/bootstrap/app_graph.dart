@@ -67,6 +67,7 @@ final class AppGraph {
     required this.syncSetup,
     required this.syncLink,
     required this.rotateKeys,
+    required this.storage,
   });
 
   final VaultContext context;
@@ -108,4 +109,7 @@ final class AppGraph {
     required String recoveryPassphrase,
   })
   rotateKeys;
+
+  /// §7.6 storage accounting, for the settings card.
+  final StorageBudget storage;
 }

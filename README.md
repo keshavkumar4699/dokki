@@ -10,7 +10,7 @@ A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, a
 
 ## Status
 
-Phases 0–9 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
+Phases 0–10 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
 
 | Layer | State |
 |---|---|
@@ -18,6 +18,7 @@ Phases 0–9 of §17 are implemented and running end to end on Android, Phase 2 
 | `vault_persistence` | Complete schema (§6) over Drift; partial unique indexes and I3 triggers; `EntryRepository`, `KeyEpochRepository`, `SyncStateRepository`, `ThumbnailIndex`. 28 DB tests incl. constraint rejections. |
 | `vault_crypto` | Envelope v1 cipher (STREAM framing, tamper matrix), `CryptoEngine`, `KeyManagerImpl` over the Keystore bridge, plus the dev-only `DartKeyManager`/`DartEnvelopePrimitive` fallback. Phase 9: full `rotate()` (verify-then-wrap MK' under a new epoch) + `rewrapDek` + `EnvelopeHeaderRewriter` (header-only rewrite per §8.6). 36 tests. |
 | `vault_app_core` (Phase 9) | `KeyRotationJob`: batch rewrap of every retired-epoch blob header, resumable by construction (the epoch-scoped query skips finished blobs; a kill mid-job resumes next launch). 2 end-to-end rotation tests (rotate → rewrap → bytes open under the new epoch; wrong PIN stores nothing). |
+| `vault_storage` (Phase 10) | `StorageBudgetImpl` (§7.6): per-class accounting + pressure floor; imports refuse before writing when the floor is crossed; pressure trims the thumbnail LRU on open. 3 tests. |
 | `vault_storage` | `FileBlobStore` (atomic `.part`→rename, fan-out layout, sealed), `KeyringFile` (§7.1, the pre-unlock keyring), `ThumbnailCache` (S/M/L, LRU budget). 16 tests. |
 | `vault_imaging` | `NativeImageProcessor` + `NativeRasterEngine` over the Kotlin pipeline (sealed in, sealed out; bitmaps stay native), with `DartImageProcessor`/`DartRasterEngine` as fallback and test oracle (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). Phase 8: `EdgeDetectorImpl` over the `detectDocument` channel method; perspective + denoise execute natively. 23 tests. |
 | `vault_app_core` | `UnlockSession` (auto-lock), create/add/reorder/delete, `CommitEdit` (retention + post-commit purge), switch/re-materialize versions. 32 tests. |
@@ -63,6 +64,13 @@ The composition root probes `dokki/vault_imaging` at boot and falls back to the 
 - Drive uploads rely on the googleapis library's resumable handling plus name-idempotent retries; manual `resume_token` plumbing is deferred.
 - `BackgroundOp` stays refused in v1 (no ML background removal); the op type exists in recipes and non-deterministic versions are correctly marked and never re-materialized (Phase 3 handling, tested). A manual corner editor is the documented follow-up to a failed auto-detect.
 - Background `SyncWorker` is **not shipped in v1** (R15 accepted): sync runs on app open, after every commit (debounced kick), and on demand. A headless WorkManager job cannot open the SQLCipher database without the user-auth-bound Keystore key — that is the design working as intended, not a bug.
+
+### Phase 10 verification status
+
+- **Coverage gate** (`tool/check_coverage.dart`) runs in CI with the §13.8 thresholds. Current measured line coverage: `vault_export` **91.9% (gate 85% ✓)**, `vault_sync` 68.4% (90), `vault_domain` 63.4% (95), `vault_crypto` 57.7% (95), `app` 36.2% (40), `vault_persistence` 26.0% (80). The tool enforces the gates; closing the gap is tracked as follow-up test work, not waived.
+- **Grid smoke test**: a 1000-entry vault builds lazily and flings both ways without exceptions (widget test, 4 s).
+- **Sync convergence** (§13.5 lite): two full engines over one fake cloud — sealed segment round trip (asserted ciphertext-only) and the offline v7/v8 divergence converging to one deterministic winner with both versions preserved. This test caught a real bug (hyphenated device ids never matched the segment-name regex).
+- **Docs**: `docs/PRIVACY.md` and `docs/DATA_SAFETY.md` are release drafts grounded in the implementation. The Google OAuth verification for `drive.appdata` (R4) must be started before the sync feature ships publicly.
 
 ## Development
 
