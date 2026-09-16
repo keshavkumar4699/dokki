@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'error_boundary.dart';
 
 final class NativeSecurity {
-  const NativeSecurity._();
+  const NativeSecurity();
 
   static const MethodChannel _channel = MethodChannel('dokki/vault_security');
 

@@ -709,13 +709,14 @@ Every sealed file on disk and every blob in Drive uses the same byte format. Thi
 │ chunk[0]  ... chunk[n]                                                  │
 │   each: 256 KiB plaintext → ciphertext + 16B tag                        │
 │   nonce = 7B random prefix (from header) || 4B BE counter || 1B final   │
-│   AAD   = header_tag || counter || final_flag                           │
+│   AAD   = stream_salt || counter || final_flag                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 Why each piece exists:
 
 - **`header_tag` covers the whole header**, so `alg_id`, `key_epoch`, and `flags` cannot be downgraded by an attacker who can write to the file. Without it, an attacker flips `alg_id` to a weaker algorithm we support in a future version.
+- **The chunk AAD anchors to `stream_salt`, not `header_tag`** (revised in Phase 9). Chaining chunks to the header tag would make §8.6 rotation impossible: rewriting the header (new epoch, rewrapped DEK, fresh tag) would invalidate every chunk's AAD and force a full body re-encryption — the exact cost rotation exists to avoid. The salt is the per-file random anchor that never changes; a header/body swap across files still fails because nonces and the stream key are salt-bound, and the header's own tag still protects the header fields from downgrade.
 - **Chunked streaming** keeps peak memory at ~256 KiB regardless of a 60 MB scan. Single-shot AES-GCM on a 60 MB file means a 60 MB plaintext buffer plus a 60 MB ciphertext buffer, which OOMs a 2 GB device.
 - **The counter in the nonce** prevents chunk reordering. **The final-chunk flag** prevents truncation, which is otherwise an undetectable attack against naive chunked schemes.
 - **`key_epoch` in the header** makes key rotation possible without re-encrypting file bodies. Rotation rewraps DEKs only.

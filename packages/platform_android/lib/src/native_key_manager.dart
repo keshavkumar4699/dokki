@@ -188,6 +188,42 @@ final class NativeKeyManagerBridge {
     );
     return CreateVaultResult.fromJson(result!);
   }
+
+  /// §8.6 steps 1–3: a NEW master key under a NEW epoch alias, bound
+  /// active while every older epoch stays readable for the rewrap job.
+  Future<CreateVaultResult> rotateMaster({
+    required int newEpoch,
+    required String pin,
+    required String recoveryPassphrase,
+  }) async {
+    final result = await guardChannel(
+      () => _channel.invokeMapMethod<String, Object?>('rotateMaster', {
+        'epoch': newEpoch,
+        'pin': pin,
+        'recoveryPassphrase': recoveryPassphrase,
+      }),
+    );
+    return CreateVaultResult.fromJson(result!);
+  }
+
+  /// §8.6 step 4: rewrap one DEK from [fromEpoch] to [toEpoch] under the
+  /// same purpose key. The DEK itself never leaves Kotlin.
+  Future<Uint8List> rewrapDek({
+    required Uint8List wrappedDek,
+    required int fromEpoch,
+    required int toEpoch,
+    required int purpose,
+  }) async {
+    final result = await guardChannel(
+      () => _channel.invokeMapMethod<String, Object?>('rewrapDek', {
+        'wrappedDek': base64Encode(wrappedDek),
+        'fromEpoch': fromEpoch,
+        'toEpoch': toEpoch,
+        'purpose': purpose,
+      }),
+    );
+    return base64Decode(result!['wrappedDek']! as String);
+  }
 }
 
 /// `createVault` / `importUnwrapped` output.

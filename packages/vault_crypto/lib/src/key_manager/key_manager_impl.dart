@@ -154,12 +154,66 @@ final class KeyManagerImpl implements KeyManager {
   });
 
   @override
-  Future<Result<void, VaultFailure>> rotate() =>
-      guardCrypto('rotate', () async {
-        // §8.6 / Phase 9: needs the PIN to wrap MK' and the rewrap job for
-        // every blob's DEK. Not wired yet; fail honestly.
-        throw const PersistenceException(KeyRotationFailed(0, 0));
-      });
+  Future<Result<void, VaultFailure>> rotate({
+    required String pin,
+    required String recoveryPassphrase,
+  }) => guardCrypto('rotate', () async {
+    _requireUnlocked();
+    await _ensureRestored();
+    final active = _activeOrThrow();
+    // A wrong PIN stored under the new epoch would lock the user out of
+    // the vault they just rotated. Verify first (§8.6).
+    if (!await bridge.verifyPin(pin, _material(active))) {
+      throw const PersistenceException(AuthenticationFailed(4));
+    }
+    final newEpoch = active.epoch + 1;
+    final created = await bridge.rotateMaster(
+      newEpoch: newEpoch,
+      pin: pin,
+      recoveryPassphrase: recoveryPassphrase,
+    );
+    await _store(
+      KeyEpoch(
+        epoch: active.epoch,
+        createdAt: active.createdAt,
+        retiredAt: clock.now(),
+        wrapAlgorithm: active.wrapAlgorithm,
+        wrappedMkDevice: active.wrappedMkDevice,
+        wrappedMkRecovery: active.wrappedMkRecovery,
+        kdfParamsJson: active.kdfParamsJson,
+        keystoreAlias: active.keystoreAlias,
+        strongbox: active.strongbox,
+      ),
+    );
+    await _store(
+      KeyEpoch(
+        epoch: newEpoch,
+        createdAt: clock.now(),
+        wrapAlgorithm: wrapAlgorithm,
+        wrappedMkDevice: created.wrappedMkDevice,
+        wrappedMkRecovery: created.wrappedMkRecovery,
+        kdfParamsJson: created.kdfParamsJson,
+        keystoreAlias: created.keystoreAlias,
+        strongbox: created.strongbox,
+      ),
+    );
+  });
+
+  @override
+  Future<Result<List<int>, VaultFailure>> rewrapDek({
+    required List<int> wrappedDek,
+    required int fromEpoch,
+    required int toEpoch,
+    required int purpose,
+  }) => guardCrypto('rewrapDek', () async {
+    _requireUnlocked();
+    return bridge.rewrapDek(
+      wrappedDek: Uint8List.fromList(wrappedDek),
+      fromEpoch: fromEpoch,
+      toEpoch: toEpoch,
+      purpose: purpose,
+    );
+  });
 
   @override
   Future<Result<RecoveryKeyringBlob, VaultFailure>> exportKeyring({

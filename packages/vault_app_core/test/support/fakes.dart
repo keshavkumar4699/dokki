@@ -362,7 +362,18 @@ final class FakeKeyManager implements KeyManager {
   ) async => const Ok(null);
 
   @override
-  Future<Result<void, VaultFailure>> rotate() async => const Ok(null);
+  Future<Result<void, VaultFailure>> rotate({
+    required String pin,
+    required String recoveryPassphrase,
+  }) async => const Ok(null);
+
+  @override
+  Future<Result<List<int>, VaultFailure>> rewrapDek({
+    required List<int> wrappedDek,
+    required int fromEpoch,
+    required int toEpoch,
+    required int purpose,
+  }) async => Ok(wrappedDek);
 
   @override
   Future<Result<RecoveryKeyringBlob, VaultFailure>> exportKeyring({

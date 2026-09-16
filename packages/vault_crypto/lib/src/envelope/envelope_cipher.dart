@@ -46,7 +46,6 @@ final class EnvelopeCipher {
     yield header;
 
     final saltPrefix = salt.sublist(0, 7);
-    final headerTag = header.sublist(header.length - 16);
     var counter = 0;
     var carry = <int>[];
     await for (final chunk in plaintext) {
@@ -62,7 +61,6 @@ final class EnvelopeCipher {
             saltPrefix: saltPrefix,
             counter: counter++,
             finalFlag: 0,
-            headerTag: headerTag,
             plaintext: carry,
           );
           carry = <int>[];
@@ -78,7 +76,6 @@ final class EnvelopeCipher {
           saltPrefix: saltPrefix,
           counter: counter++,
           finalFlag: 0,
-          headerTag: headerTag,
           plaintext: chunk.sublist(offset, offset + chunkSize),
         );
         offset += chunkSize;
@@ -97,7 +94,6 @@ final class EnvelopeCipher {
       saltPrefix: saltPrefix,
       counter: counter,
       finalFlag: 1,
-      headerTag: headerTag,
       plaintext: carry,
     );
   }
@@ -128,7 +124,6 @@ final class EnvelopeCipher {
       saltPrefix: salt.sublist(0, 7),
       counter: 0,
       finalFlag: 1,
-      headerTag: header.sublist(header.length - 16),
       plaintext: plaintext,
     );
     return SealedBytes(
@@ -180,7 +175,6 @@ final class EnvelopeCipher {
       );
 
       final saltPrefix = header.streamSalt.sublist(0, 7);
-      final headerTag = header.headerTag;
       final buffered = <int>[...read.leftover];
 
       // Reassembles one envelope chunk from arbitrarily-sized stream
@@ -211,7 +205,7 @@ final class EnvelopeCipher {
           keyId,
           salt: header.streamSalt,
           nonce: _chunkNonce(saltPrefix, counter, finalFlag),
-          aad: _chunkAad(headerTag, counter, finalFlag),
+          aad: _chunkAad(header.streamSalt, counter, finalFlag),
           ciphertext: Uint8List.fromList(current),
         );
         if (finalFlag == 0 && plaintext.length != chunkSize) {
@@ -284,13 +278,12 @@ final class EnvelopeCipher {
     required Uint8List saltPrefix,
     required int counter,
     required int finalFlag,
-    required Uint8List headerTag,
     required List<int> plaintext,
   }) => primitive.encryptChunk(
     keyId,
     salt: salt,
     nonce: _chunkNonce(saltPrefix, counter, finalFlag),
-    aad: _chunkAad(headerTag, counter, finalFlag),
+    aad: _chunkAad(salt, counter, finalFlag),
     plaintext: Uint8List.fromList(plaintext),
   );
 
@@ -301,8 +294,13 @@ final class EnvelopeCipher {
     return nonce;
   }
 
-  Uint8List _chunkAad(Uint8List headerTag, int counter, int finalFlag) {
-    final aad = Uint8List(21)..setRange(0, 16, headerTag);
+  /// The chunk AAD anchors to the IMMUTABLE stream salt, not the header
+  /// tag: rotation (§8.6) rewrites the header (new epoch, rewrapped DEK,
+  /// fresh tag) while the body must keep verifying. The salt is the
+  /// per-file random anchor that never changes, and the header's own tag
+  /// still protects the header fields from downgrade.
+  Uint8List _chunkAad(Uint8List streamSalt, int counter, int finalFlag) {
+    final aad = Uint8List(21)..setRange(0, 16, streamSalt);
     ByteData.sublistView(aad).setUint32(16, counter);
     aad[20] = finalFlag;
     return aad;

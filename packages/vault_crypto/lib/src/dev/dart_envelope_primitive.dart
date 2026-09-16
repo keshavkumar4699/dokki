@@ -101,6 +101,37 @@ final class DartEnvelopePrimitive implements EnvelopePrimitive {
     return keyId;
   }
 
+  /// §8.6 rewrap job: unwrap a DEK under `K_<purpose>(fromEpoch)` and
+  /// rewrap it under `K_<purpose>(toEpoch)`. Both epochs must be bound.
+  Future<Uint8List> rewrap({
+    required Uint8List wrappedDek,
+    required int fromEpoch,
+    required int toEpoch,
+    required int purpose,
+  }) async {
+    final oldKek = await _kekFor(fromEpoch, purpose);
+    final List<int> dek;
+    try {
+      dek = await _gcm.decrypt(
+        SecretBox(
+          wrappedDek.sublist(12, wrappedDek.length - 16),
+          nonce: wrappedDek.sublist(0, 12),
+          mac: Mac(wrappedDek.sublist(wrappedDek.length - 16)),
+        ),
+        secretKey: oldKek,
+      );
+    } on SecretBoxAuthenticationError {
+      throw const TagVerificationFailed();
+    }
+    final newKek = await _kekFor(toEpoch, purpose);
+    final box = await _gcm.encrypt(dek, secretKey: newKek);
+    return Uint8List.fromList([
+      ...box.nonce,
+      ...box.cipherText,
+      ...box.mac.bytes,
+    ]);
+  }
+
   @override
   Future<Uint8List> sealHeader(
     int keyId, {

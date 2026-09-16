@@ -273,6 +273,7 @@ Future<AppBoot> composeBoot() async {
         crypto: crypto,
         ids: ids,
         activeKeyEpoch: activeEpoch,
+        headerRewriter: EnvelopeHeaderRewriter(primitive),
       );
       await blobStore.sweepPartialWrites();
 
@@ -403,6 +404,46 @@ Future<AppBoot> composeBoot() async {
             );
       });
 
+      /// §8.6 key rotation end to end: new master key → rewrap every blob
+      /// header → rekey SQLCipher to the new `K_db`. Old epochs stay
+      /// readable throughout; the job resumes if the process dies.
+      Future<Result<void, VaultFailure>> rotateKeys({
+        required String pin,
+        required String recoveryPassphrase,
+      }) async {
+        final rotated = await keyManager.rotate(
+          pin: pin,
+          recoveryPassphrase: recoveryPassphrase,
+        );
+        if (rotated.isErr) {
+          return rotated;
+        }
+        final job = KeyRotationJob(
+          keyManager: keyManager,
+          epochBlobs: BlobEpochRepositoryImpl(database),
+          blobStore: blobStore,
+          activeKeyEpoch: activeEpoch,
+        );
+        while (true) {
+          final run = await job.run();
+          if (run.isErr) {
+            return Err(run.errOrNull!);
+          }
+          if (run.okOrNull!.remaining == 0) {
+            break;
+          }
+        }
+        // §8.6 step 5: rekey SQLCipher (small DB, full rewrite is fine).
+        final newKey = await keyManager.deriveDbKey();
+        if (newKey.isErr) {
+          return Err(newKey.errOrNull!);
+        }
+        await database.customStatement(
+          "PRAGMA rekey = \"x'${_hex(newKey.okOrNull!)}'\"",
+        );
+        return const Ok(null);
+      }
+
       return Ok(
         AppGraph(
           context: context,
@@ -439,6 +480,7 @@ Future<AppBoot> composeBoot() async {
           sync: controller,
           syncSetup: syncSetup,
           syncLink: _DriveSyncLink(driveAuth, syncSetup),
+          rotateKeys: rotateKeys,
         ),
       );
     });
@@ -449,6 +491,9 @@ Future<AppBoot> composeBoot() async {
     keyManager: keyManager,
     random: random,
     cryptoBackend: backend,
+    securitySignals: const NativeSecurity()
+        .rootSignals()
+        .catchError((_) => const <String>[]),
     openVault: () async {
       final opened = await openVaultUnlogged();
       opened.fold((_) {}, (failure) {
@@ -544,6 +589,12 @@ Future<Result<void, VaultFailure>> _mirrorKeyring(
   }
   return const Ok(null);
 });
+
+/// Lowercase hex for SQLCipher raw-key pragmas (the DB key is already
+/// derived; `x'…'` makes SQLCipher use it raw, §8.1).
+String _hex(List<int> bytes) => [
+  for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
+].join();
 
 /// Reads the self device id from `devices`, creating it on first launch.
 Future<Result<DeviceId, VaultFailure>> _ensureDeviceId(

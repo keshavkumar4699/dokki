@@ -15,6 +15,7 @@ final class AppBoot {
     required this.keyManager,
     required this.random,
     required this.cryptoBackend,
+    required this.securitySignals,
     required this.openVault,
     required this.closeVault,
     required this.restoreFromDrive,
@@ -27,6 +28,11 @@ final class AppBoot {
   final RandomSource random;
 
   final CryptoBackend cryptoBackend;
+
+  /// Advisory root/emulator/test-key signals (§8.7 T4, Phase 9): the app
+  /// warns, it does not refuse. Empty on a clean device or a non-Android
+  /// host.
+  final Future<List<String>> securitySignals;
 
   /// Derives `K_db`, opens the SQLCipher database and builds the graph.
   /// Only valid while [session] is unlocked.

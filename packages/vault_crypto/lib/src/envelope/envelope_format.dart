@@ -21,11 +21,17 @@
 /// Body chunks (256 KiB plaintext each):
 /// ```
 /// nonce = stream_salt[0..7] || counter(4B BE) || final(1B)
-/// aad   = header_tag || counter(4B BE) || final(1B)
+/// aad   = stream_salt || counter(4B BE) || final(1B)
 /// ct    = AES-GCM(stream_key, nonce, aad, chunk)
 /// ```
 /// Keys: `stream_key = HKDF-SHA256(dek, salt, 'dokki/envelope/v1/stream')`,
 /// `header_key = HKDF-SHA256(dek, salt, 'dokki/envelope/v1/header')`.
+///
+/// The chunk AAD anchors to the IMMUTABLE stream salt, not the header
+/// tag: key rotation (§8.6) rewrites the header (new epoch, rewrapped
+/// DEK, fresh tag) and the body must keep verifying untouched. The salt
+/// is the per-file random anchor — a header/body swap across files still
+/// fails because the nonces and stream key are salt-bound.
 ///
 /// Why each piece exists:
 /// - `header_tag` covers the whole header, so `alg_id`/`key_epoch`/`flags`

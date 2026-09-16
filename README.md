@@ -10,13 +10,14 @@ A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, a
 
 ## Status
 
-Phases 0–8 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
+Phases 0–9 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
 
 | Layer | State |
 |---|---|
 | `vault_domain` | Complete: entities, specs, invariants, version graph, retention, ports, sealed failures. 83 tests. |
 | `vault_persistence` | Complete schema (§6) over Drift; partial unique indexes and I3 triggers; `EntryRepository`, `KeyEpochRepository`, `SyncStateRepository`, `ThumbnailIndex`. 28 DB tests incl. constraint rejections. |
-| `vault_crypto` | Envelope v1 cipher (STREAM framing, tamper matrix), `CryptoEngine`, `KeyManagerImpl` over the Keystore bridge, plus the dev-only `DartKeyManager`/`DartEnvelopePrimitive` fallback. 36 tests. |
+| `vault_crypto` | Envelope v1 cipher (STREAM framing, tamper matrix), `CryptoEngine`, `KeyManagerImpl` over the Keystore bridge, plus the dev-only `DartKeyManager`/`DartEnvelopePrimitive` fallback. Phase 9: full `rotate()` (verify-then-wrap MK' under a new epoch) + `rewrapDek` + `EnvelopeHeaderRewriter` (header-only rewrite per §8.6). 36 tests. |
+| `vault_app_core` (Phase 9) | `KeyRotationJob`: batch rewrap of every retired-epoch blob header, resumable by construction (the epoch-scoped query skips finished blobs; a kill mid-job resumes next launch). 2 end-to-end rotation tests (rotate → rewrap → bytes open under the new epoch; wrong PIN stores nothing). |
 | `vault_storage` | `FileBlobStore` (atomic `.part`→rename, fan-out layout, sealed), `KeyringFile` (§7.1, the pre-unlock keyring), `ThumbnailCache` (S/M/L, LRU budget). 16 tests. |
 | `vault_imaging` | `NativeImageProcessor` + `NativeRasterEngine` over the Kotlin pipeline (sealed in, sealed out; bitmaps stay native), with `DartImageProcessor`/`DartRasterEngine` as fallback and test oracle (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). Phase 8: `EdgeDetectorImpl` over the `detectDocument` channel method; perspective + denoise execute natively. 23 tests. |
 | `vault_app_core` | `UnlockSession` (auto-lock), create/add/reorder/delete, `CommitEdit` (retention + post-commit purge), switch/re-materialize versions. 32 tests. |
@@ -36,6 +37,8 @@ The keyring (wrapped keys + KDF parameters) lives in `files/vault/keyring/keyrin
 
 If the Kotlin channel is unavailable (tests, a host without the plugin), the composition root falls back to the dev-only `DartKeyManager` (PIN-derived key in software — architecture mistake M1) and Settings shows a red "Development build: software keys" card. A vault created under one backend is not opened by the other; `wrap_alg` records which one made it. Screenshots are blocked by `FLAG_SECURE` always; debug builds can allow capture for UI review with `adb shell settings put global dokki_allow_capture 1`.
 
+Phase 9 hardening: key rotation works end to end (Settings → Rotate encryption keys: new master key under a new epoch, every blob header rewrapped, SQLCipher rekeyed; old epochs stay readable until the job finishes). Settings shows an amber warning when root/emulator/test-key signals are detected (T4, advisory only). Google Drive traffic is certificate-pinned to the four GTS roots (`network_security_config.xml`, SPKI digests computed from pki.goog). Clipboard values are cleared after 30 s (`core_ui/clipboard.dart`). `AnalyticsPort` ships as an allowlist with a no-op backend — no analytics SDK in v1.
+
 Deviation from §8.3: the Keystore key is auth-bound with a 30 s validity window rather than per-use (`setUserAuthenticationParameters(0, …)`), so one device-credential prompt covers unwrapping every epoch; both factors remain mandatory.
 
 The composition root probes `dokki/vault_imaging` at boot and falls back to the Dart reference pipeline when the plugin is absent (tests, non-Android hosts); both backends implement the same ports, so callers cannot tell which ran.
@@ -53,6 +56,7 @@ The composition root probes `dokki/vault_imaging` at boot and falls back to the 
 - `VaultEntrySummary.coverVersionId` (the first live asset's current version) is part of the list read model, so the grid renders thumbnails from one query and follows rotations/reorders live.
 - `RasterEngine` port added (prepare/encode over a `BlobHandle`) so the export pipeline never holds a bitmap in Dart; `ExportSourceResolver` port added so the engine resolves evicted versions through the re-materialization use case without importing `vault_app_core`.
 - Export artifacts are sealed blobs (`StorageClass.exportArtifact`) shared through a swept `ShareCache` with neutral filenames (`dokki-<id8>.<ext>`); the share sheet is the only place plaintext leaves the vault (A8).
+- **Envelope v1 revision (Phase 9):** the body-chunk AAD anchors to the immutable `stream_salt`, not the `header_tag`. The documented format made §8.6 rotation impossible (rewriting the header invalidates every chunk's AAD — found by the rotation end-to-end test). The header tag still authenticates the header; the salt anchors the body. Pre-release format change, no migration (no shipped users).
 - `AddVersionOp` carries the blob-row fields (`blobKeyEpoch`, `blobWrappedDekBase64`, `blobCiphertextSha256`, `blobCiphertextSize`): the receiver's FK demands a `blobs` row before the version row, and the file may not be downloaded for days.
 - Pointer arbitration (`ASSET_CURRENT`) uses **lineage** to tell a fast-forward from a fork: if our pointer is an ancestor of the incoming version, the remote saw our state. This replaces §9.4's full observed-HLC causality for v1; `ENTRY_FIELD`, `PAGE_ORDER` and `ASSET_SET` conflicts are simplified to LWW-by-HLC (loser state survives in the op log). Deterministic convergence (P5/P6) is unaffected.
 - Segment payloads are JSONL (named fields, unknown-op preserving) behind a codec seam, not CBOR; §9.6's forward-compat rules are honoured either way.

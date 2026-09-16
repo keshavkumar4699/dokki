@@ -166,6 +166,28 @@ class KeySession {
             mk.fill(0)
         }
     }
+
+    /**
+     * §8.6 rewrap job: unwrap a DEK under `K_<purpose>(fromEpoch)` and
+     * rewrap it under `K_<purpose>(toEpoch)`. Both epochs must be bound
+     * (old epochs stay readable until the job finishes, §8.6 step 6).
+     * The DEK itself never leaves the session.
+     */
+    fun rewrapDek(wrapped: ByteArray, fromEpoch: Int, toEpoch: Int, purpose: Int): ByteArray {
+        val oldKek = purposeKey(fromEpoch, purpose)
+        val dek = try {
+            Primitives.unwrap(oldKek, wrapped)
+        } finally {
+            oldKek.fill(0)
+        }
+        val newKek = purposeKey(toEpoch, purpose)
+        try {
+            return Primitives.wrap(newKek, dek)
+        } finally {
+            newKek.fill(0)
+            dek.fill(0)
+        }
+    }
 }
 
 class LockedException : Exception("vault locked")

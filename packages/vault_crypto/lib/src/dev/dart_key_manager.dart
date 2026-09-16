@@ -219,13 +219,57 @@ final class DartKeyManager implements KeyManager {
   });
 
   @override
-  Future<Result<void, VaultFailure>> rotate() =>
-      guardCrypto('rotate', () async {
-        // Rotation needs the PIN to re-wrap MK' under a fresh KEK; the dev
-        // manager has no way to ask for it here. Deferred with the real
-        // implementation (§8.6, Phase 9).
-        throw const PersistenceException(KeyRotationFailed(0, 0));
-      });
+  Future<Result<void, VaultFailure>> rotate({
+    required String pin,
+    required String recoveryPassphrase,
+  }) => guardCrypto('rotate', () async {
+    _requireUnlocked();
+    // A wrong PIN stored under the new epoch would lock the user out.
+    final verified = await verifyPin(pin);
+    if (verified.isErr || verified.okOrNull! != true) {
+      throw PersistenceException(AuthenticationFailed(_remainingAttempts()));
+    }
+    final active = _activeEpochOrThrow();
+    final master = _masterFor(active.epoch);
+    final newEpoch = active.epoch + 1;
+    await _store(
+      KeyEpoch(
+        epoch: active.epoch,
+        createdAt: active.createdAt,
+        retiredAt: clock.now(),
+        wrapAlgorithm: active.wrapAlgorithm,
+        wrappedMkDevice: active.wrappedMkDevice,
+        wrappedMkRecovery: active.wrappedMkRecovery,
+        kdfParamsJson: active.kdfParamsJson,
+        keystoreAlias: active.keystoreAlias,
+        strongbox: false,
+      ),
+    );
+    final epoch = await _wrapEpoch(
+      epochNumber: newEpoch,
+      master: master,
+      pin: pin,
+      passphrase: recoveryPassphrase,
+    );
+    await _store(epoch);
+    primitive.bindMasterKey(newEpoch, master);
+  });
+
+  @override
+  Future<Result<List<int>, VaultFailure>> rewrapDek({
+    required List<int> wrappedDek,
+    required int fromEpoch,
+    required int toEpoch,
+    required int purpose,
+  }) => guardCrypto('rewrapDek', () async {
+    _requireUnlocked();
+    return primitive.rewrap(
+      wrappedDek: Uint8List.fromList(wrappedDek),
+      fromEpoch: fromEpoch,
+      toEpoch: toEpoch,
+      purpose: purpose,
+    );
+  });
 
   @override
   Future<Result<RecoveryKeyringBlob, VaultFailure>> exportKeyring({

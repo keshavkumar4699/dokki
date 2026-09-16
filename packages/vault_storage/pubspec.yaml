@@ -22,3 +22,5 @@ dependencies:
 dev_dependencies:
   cryptography: ^2.7.0
   test: ^1.26.3
+  vault_app_core:
+    path: ../vault_app_core

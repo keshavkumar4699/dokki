@@ -9,6 +9,7 @@ export 'src/database/connection.dart';
 export 'src/database/tables.dart';
 export 'src/error_boundary.dart';
 export 'src/export_request_codec.dart';
+export 'src/repositories/blob_epoch_repository_impl.dart';
 export 'src/repositories/entry_repository_impl.dart';
 export 'src/repositories/key_epoch_repository_impl.dart';
 export 'src/repositories/sync_apply_repository_impl.dart';

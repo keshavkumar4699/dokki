@@ -20,6 +20,11 @@ final sessionProvider = Provider<UnlockSession>(
   (ref) => ref.watch(appBootProvider).session,
 );
 
+/// Advisory root/emulator/test-key signals (§8.7 T4, Phase 9).
+final securitySignalsProvider = FutureProvider<List<String>>(
+  (ref) => ref.watch(appBootProvider).securitySignals,
+);
+
 /// The opened vault, set by the opening screen after unlock and cleared by
 /// `AppLifecycle` on lock. `null` = locked or still opening.
 final openVaultProvider = StateProvider<AppGraph?>((_) => null);

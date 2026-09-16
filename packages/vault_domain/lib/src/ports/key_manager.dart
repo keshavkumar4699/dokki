@@ -49,8 +49,28 @@ abstract interface class KeyManager {
     String newPassphrase,
   );
 
-  /// Rotates MK: new epoch, DEK rewrapping is scheduled lazily (§8.6).
-  Future<Result<void, VaultFailure>> rotate();
+  /// §8.6 steps 1–3: a new master key under a new epoch. Every older
+  /// epoch stays readable until the rewrap job finishes (it rewrites
+  /// DEKs, not bodies, so rotation is a metadata pass, not a re-encrypt).
+  ///
+  /// Both factors are required: the PIN wraps MK' under the fresh device
+  /// KEK and the passphrase wraps it under a fresh recovery salt. A wrong
+  /// PIN fails BEFORE anything is stored, or the new epoch would lock the
+  /// user out of their own vault.
+  Future<Result<void, VaultFailure>> rotate({
+    required String pin,
+    required String recoveryPassphrase,
+  });
+
+  /// §8.6 step 4: rewrap a blob DEK from [fromEpoch] to [toEpoch] under
+  /// the same purpose key. Used only by the rotation job; the DEK never
+  /// leaves the key backend.
+  Future<Result<List<int>, VaultFailure>> rewrapDek({
+    required List<int> wrappedDek,
+    required int fromEpoch,
+    required int toEpoch,
+    required int purpose,
+  });
 
   /// The keyring blob for cloud backup / new-device bootstrap (§9.9).
   Future<Result<RecoveryKeyringBlob, VaultFailure>> exportKeyring({

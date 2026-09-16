@@ -66,6 +66,7 @@ final class AppGraph {
     required this.sync,
     required this.syncSetup,
     required this.syncLink,
+    required this.rotateKeys,
   });
 
   final VaultContext context;
@@ -99,4 +100,12 @@ final class AppGraph {
 
   /// The Google Drive connect/disconnect surface.
   final SyncLink syncLink;
+
+  /// §8.6 key rotation: new master key, rewraps every blob header, and
+  /// rekeys SQLCipher. Needs both factors (PIN + recovery passphrase).
+  final Future<Result<void, VaultFailure>> Function({
+    required String pin,
+    required String recoveryPassphrase,
+  })
+  rotateKeys;
 }

@@ -45,6 +45,7 @@ final class TestGraph {
           ? Ok(graph)
           : const Err(KeyUnavailable(KeyUnavailableReason.vaultLocked)),
       closeVault: () async => closeCount++,
+      securitySignals: Future.value(const <String>[]),
       restoreFromDrive: ({required pin, required recoveryPassphrase}) async =>
           const Ok(null),
     );
@@ -100,6 +101,8 @@ final class TestGraph {
         activeKeyEpoch: () => 1,
       ),
       syncLink: const FakeSyncLink(),
+      rotateKeys: ({required pin, required recoveryPassphrase}) async =>
+          const Ok(null),
     );
   }
 

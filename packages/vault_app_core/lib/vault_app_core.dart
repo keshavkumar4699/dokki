@@ -11,6 +11,7 @@ export 'src/entries/entry_details.dart';
 export 'src/entries/vault_queries.dart';
 export 'src/exporting/export_source_resolver_impl.dart';
 export 'src/exporting/export_use_cases.dart';
+export 'src/security/key_rotation_job.dart';
 export 'src/security/unlock_session.dart';
 export 'src/sync/sync_controller.dart';
 export 'src/sync/sync_setup.dart';

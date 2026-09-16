@@ -10,6 +10,7 @@ import '../../bootstrap/providers.dart';
 import '../../core_ui/motion.dart';
 import '../../core_ui/tokens.dart';
 import '../../core_ui/widgets/common.dart';
+import 'rotate_keys_sheet.dart';
 import 'sync_section.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -22,9 +23,41 @@ class SettingsScreen extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final isDev = boot.cryptoBackend == CryptoBackend.softwareDev;
+    final signals = ref.watch(securitySignalsProvider).value ?? const [];
 
     final rows = <Widget>[
       const SectionHeader('Security'),
+      if (signals.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: DokkiSpace.lg),
+          child: Card(
+            color: scheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(DokkiSpace.lg),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.gpp_maybe_outlined,
+                    color: scheme.onErrorContainer,
+                  ),
+                  const SizedBox(width: DokkiSpace.md),
+                  Expanded(
+                    child: Text(
+                      'This device shows signs of being modified '
+                      '(${signals.join(', ').toLowerCase()}). An unlocked '
+                      'vault on a compromised device cannot be protected '
+                      '(T4).',
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: DokkiSpace.lg),
         child: Card(
@@ -95,6 +128,12 @@ class SettingsScreen extends ConsumerWidget {
         trailing: const Icon(Icons.chevron_right),
         enabled: false,
         onTap: () {},
+      ),
+      ListTile(
+        leading: const Icon(Icons.vpn_key_outlined),
+        title: const Text('Rotate encryption keys'),
+        subtitle: const Text('New master key; everything is re-wrapped'),
+        onTap: () => showRotateKeysSheet(context),
       ),
       ListTile(
         leading: const Icon(Icons.lock_outline),

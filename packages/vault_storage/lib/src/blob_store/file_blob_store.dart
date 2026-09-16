@@ -13,7 +13,8 @@ import 'dart:typed_data';
 
 import 'package:convert/convert.dart' show AccumulatorSink, hex;
 import 'package:crypto/crypto.dart';
-import 'package:vault_crypto/vault_crypto.dart' show EnvelopeHeader;
+import 'package:vault_crypto/vault_crypto.dart'
+    show EnvelopeHeader, EnvelopeHeaderRewriter;
 import 'package:vault_domain/vault_domain.dart';
 
 import '../error_boundary.dart';
@@ -38,17 +39,21 @@ final class FileBlobHandle implements BlobHandle {
   final int? plaintextSize;
 }
 
-final class FileBlobStore implements BlobStore {
+final class FileBlobStore implements BlobStore, RotationBlobStore {
   FileBlobStore({
     required String rootDir,
     required this.crypto,
     required this.ids,
     required this.activeKeyEpoch,
+    this.headerRewriter,
   }) : paths = BlobPaths(rootDir);
 
   final BlobPaths paths;
   final CryptoEngine crypto;
   final IdGenerator ids;
+
+  /// §8.6 rotation support; wired at the composition root.
+  final EnvelopeHeaderRewriter? headerRewriter;
 
   /// Provided by the `KeyManager`; every new blob is sealed under it.
   final int Function() activeKeyEpoch;
@@ -291,6 +296,56 @@ final class FileBlobStore implements BlobStore {
   /// At the file level eviction and purge are the same delete; the
   /// repository is what refuses to evict an ORIGINAL (I2) or a pinned
   /// version (I10), before this is ever called.
+  /// §8.6 step 4: rewrites this blob's header under [toEpoch] (new
+  /// wrapped DEK + fresh tag) and atomically replaces the file. The body
+  /// is streamed, never loaded — rotation touches metadata, not bytes.
+  Future<Result<void, VaultFailure>> rewrapBlobHeader(
+    BlobId id, {
+    required int toEpoch,
+    required Future<Uint8List> Function(Uint8List wrappedDek, int purpose)
+    rewrapDek,
+  }) => guardIo('rewrapBlobHeader', blobId: id, () async {
+    final rewriter = headerRewriter;
+    if (rewriter == null) {
+      throw StorageException(KeyRotationFailed(0, toEpoch));
+    }
+    final located = await _locate(id);
+    if (located == null) {
+      throw StorageException(CorruptFile(id));
+    }
+    final path = paths.absolute(located.relPath);
+    final file = File(path);
+    final raf = await file.open();
+    final Uint8List headerBytes;
+    try {
+      final fixed = await raf.read(15);
+      final dekLen = ByteData.sublistView(fixed).getUint16(13);
+      final rest = await raf.read(dekLen + 32);
+      headerBytes = Uint8List.fromList([...fixed, ...rest]);
+    } finally {
+      await raf.close();
+    }
+    final rewritten = await rewriter.rewrap(
+      headerBytes,
+      toEpoch: toEpoch,
+      rewrapDek: rewrapDek,
+    );
+    final newHeader = rewritten.fold(
+      (bytes) => bytes,
+      (failure) => throw StorageException(failure),
+    );
+    final part = File('$path.part');
+    final sink = part.openWrite();
+    try {
+      sink.add(newHeader);
+      await sink.addStream(file.openRead(headerBytes.length));
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    await part.rename(path);
+  });
+
   @override
   Future<Result<void, VaultFailure>> evict(BlobId id) => purge(id);
 

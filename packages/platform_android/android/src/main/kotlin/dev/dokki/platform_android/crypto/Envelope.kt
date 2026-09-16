@@ -16,7 +16,7 @@ import java.security.MessageDigest
  * wrapped_dek_len u16 BE | wrapped_dek | stream_salt[16] | header_tag[16]
  * body: chunks of AES-GCM(stream_key, nonce, aad, 256 KiB plaintext)
  *   nonce = salt[0..7] || counter u32 BE || final
- *   aad   = header_tag || counter u32 BE || final
+ *   aad   = stream_salt || counter u32 BE || final
  * ```
  * The native image pipeline reads and writes sealed files directly so
  * that no full-resolution plaintext ever crosses into Dart (§8.4).
@@ -38,9 +38,14 @@ object EnvelopeFormat {
         return nonce
     }
 
-    fun chunkAad(headerTag: ByteArray, counter: Int, final: Int): ByteArray {
+    /**
+     * The chunk AAD anchors to the IMMUTABLE stream salt, not the header
+     * tag: rotation (§8.6) rewrites the header (new epoch, rewrapped DEK,
+     * fresh tag) while the body must keep verifying.
+     */
+    fun chunkAad(streamSalt: ByteArray, counter: Int, final: Int): ByteArray {
         val aad = ByteArray(21)
-        System.arraycopy(headerTag, 0, aad, 0, 16)
+        System.arraycopy(streamSalt, 0, aad, 0, 16)
         ByteBuffer.wrap(aad, 16, 4).putInt(counter)
         aad[20] = final.toByte()
         return aad
@@ -156,7 +161,7 @@ class EnvelopeReader(private val session: KeySession) {
                     keyId,
                     header.streamSalt,
                     EnvelopeFormat.chunkNonce(header.streamSalt, counter, final),
-                    EnvelopeFormat.chunkAad(header.headerTag, counter, final),
+                    EnvelopeFormat.chunkAad(header.streamSalt, counter, final),
                     sealed.copyOfRange(offset, offset + take),
                 )
                 if (final == 0 && plaintext.size != EnvelopeFormat.CHUNK_SIZE) {
@@ -217,7 +222,7 @@ class EnvelopeWriter(private val session: KeySession) {
                 val ct = session.encryptChunk(
                     keyId, salt,
                     EnvelopeFormat.chunkNonce(salt, counter, 0),
-                    EnvelopeFormat.chunkAad(tag, counter, 0),
+                    EnvelopeFormat.chunkAad(salt, counter, 0),
                     plaintext.copyOfRange(offset, offset + EnvelopeFormat.CHUNK_SIZE),
                 )
                 out.write(ct)
@@ -229,7 +234,7 @@ class EnvelopeWriter(private val session: KeySession) {
             val last = session.encryptChunk(
                 keyId, salt,
                 EnvelopeFormat.chunkNonce(salt, counter, 1),
-                EnvelopeFormat.chunkAad(tag, counter, 1),
+                EnvelopeFormat.chunkAad(salt, counter, 1),
                 plaintext.copyOfRange(offset, plaintext.size),
             )
             out.write(last)

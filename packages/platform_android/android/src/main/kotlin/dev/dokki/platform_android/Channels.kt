@@ -95,7 +95,30 @@ class KeyManagerChannel(
         "changeRecovery" -> changeRecovery(call)
         "deriveDbKey" -> mapOf("key" to session.deriveDbKey().b64())
         "importUnwrapped" -> importUnwrapped(call)
+        "rotateMaster" -> rotateMaster(call)
+        "rewrapDek" -> mapOf(
+            "wrappedDek" to session.rewrapDek(
+                call.bytes("wrappedDek"),
+                call.int("fromEpoch"),
+                call.int("toEpoch"),
+                call.int("purpose"),
+            ).b64(),
+        )
         else -> throw NotImplementedError()
+    }
+
+    /** §8.6 steps 1–3: a NEW master key under a NEW epoch alias, bound
+     * active while every older epoch stays readable for the rewrap job. */
+    private fun rotateMaster(call: MethodCall): Map<String, Any?> {
+        if (!keystore.hasDeviceLock()) throw NoDeviceLockException()
+        val epoch = call.int("epoch")
+        val mk = Primitives.randomBytes(32)
+        val wrapped = gate.withAuth {
+            wrap.wrapNew(epoch, mk, call.string("pin"), call.string("recoveryPassphrase"))
+        }
+        // Older epochs stay bound (readable) — the rewrap job needs them.
+        session.bindMasterKey(epoch, mk, active = true)
+        return wrapped.toMap()
     }
 
     private fun createVault(call: MethodCall): Map<String, Any?> {
