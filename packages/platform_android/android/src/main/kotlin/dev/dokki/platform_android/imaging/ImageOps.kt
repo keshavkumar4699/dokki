@@ -46,8 +46,59 @@ object ImageOps {
             Color.WHITE,
         )
         "filter" -> filter(input, op.getString("id"))
-        "perspective", "denoise", "background" -> throw UnsupportedOpException(op.getString("op"))
+        "perspective" -> perspective(input, op.getJSONObject("quad"))
+        "denoise" -> denoise(input, op.getString("strength"))
+        "background" -> throw UnsupportedOpException(op.getString("op"))
         else -> throw UnsupportedOpException(op.getString("op"))
+    }
+
+    // ── Phase 8 CV ops (§17) ────────────────────────────────────────────────
+
+    /**
+     * Perspective correction: warp the normalised quad to a rectangle.
+     * The homography maps quad corners → output frame; output size follows
+     * the quad's own edge lengths at the decoded scale (§5.3 normalised
+     * coordinates hold at any decode size).
+     */
+    fun perspective(input: Bitmap, quadJson: JSONObject): Bitmap {
+        val w = input.width
+        val h = input.height
+        val quadPx = FloatArray(8)
+        for (i in 0 until 4) {
+            val p = quadJson.getJSONObject("p$i")
+            quadPx[i * 2] = (p.getDouble("x") * w).toFloat()
+            quadPx[i * 2 + 1] = (p.getDouble("y") * h).toFloat()
+        }
+        val (outW, outH) = CvOps.warpOutputSize(quadPx)
+        val dst = floatArrayOf(
+            0f, 0f,
+            outW.toFloat(), 0f,
+            outW.toFloat(), outH.toFloat(),
+            0f, outH.toFloat(),
+        )
+        val hInv = CvOps.homography(dst, quadPx)
+        val src = IntArray(w * h)
+        input.getPixels(src, 0, w, 0, 0, w, h)
+        val warped = CvOps.warpPerspective(src, w, h, hInv, outW, outH)
+        val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        out.setPixels(warped, 0, outW, 0, 0, outW, outH)
+        return replace(input, out)
+    }
+
+    /** Bilateral denoise; the strength maps to the kernel radius (§5.3). */
+    fun denoise(input: Bitmap, strength: String): Bitmap {
+        val radius = when (strength) {
+            "light" -> 1
+            "medium" -> 2
+            "strong" -> 3
+            else -> throw UnsupportedOpException("denoise:$strength")
+        }
+        val src = IntArray(input.width * input.height)
+        input.getPixels(src, 0, input.width, 0, 0, input.width, input.height)
+        val filtered = CvOps.denoise(src, input.width, input.height, radius)
+        val out = Bitmap.createBitmap(input.width, input.height, Bitmap.Config.ARGB_8888)
+        out.setPixels(filtered, 0, input.width, 0, 0, input.width, input.height)
+        return replace(input, out)
     }
 
     // ── Geometry ────────────────────────────────────────────────────────────

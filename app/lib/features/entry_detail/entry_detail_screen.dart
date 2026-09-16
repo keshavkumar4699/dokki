@@ -99,6 +99,20 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     });
   }
 
+  /// Phase 8: auto edge detection + perspective correction (§17). A
+  /// failed detection is honest — the snackbar says so; the previous
+  /// version is always kept in history either way.
+  Future<void> _enhance(Asset asset) async {
+    final enhance = ref.read(appGraphProvider).enhance;
+    if (enhance == null) {
+      return;
+    }
+    await _run(
+      () => enhance.execute(asset.id),
+      success: 'Edges corrected. The previous version is kept in history.',
+    );
+  }
+
   Future<void> _addAsset(VaultEntry entry, AssetRole role) async {
     final picked = await ref
         .read(imageSourcePickerProvider)
@@ -395,12 +409,19 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         !assets.any((a) => a.role == AssetRole.idBack);
     final now = ref.read(appGraphProvider).context.now();
 
+    final enhance = ref.watch(appGraphProvider).enhance;
     final actions = [
       _Action(
         icon: Icons.rotate_90_degrees_cw_outlined,
         label: 'Rotate',
         onTap: _busy ? null : () => _rotate(current),
       ),
+      if (enhance != null)
+        _Action(
+          icon: Icons.crop_free,
+          label: 'Enhance',
+          onTap: _busy ? null : () => _enhance(current),
+        ),
       _Action(
         icon: Icons.history,
         label: 'History',

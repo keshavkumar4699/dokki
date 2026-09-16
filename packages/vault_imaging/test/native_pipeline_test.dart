@@ -97,6 +97,16 @@ final class FakeBridge implements ImagingBridge {
   Future<bool> isAvailable() async => true;
 
   @override
+  Future<DetectedQuad?> detectDocument({
+    required String inputPath,
+    required int purpose,
+  }) async {
+    calls.add({'m': 'detectDocument', 'inputPath': inputPath});
+    _maybeFail();
+    return null; // "no confident quad" by default in tests
+  }
+
+  @override
   Future<InspectResult> inspect({
     required String inputPath,
     required int purpose,

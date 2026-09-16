@@ -14,4 +14,5 @@ export 'src/exporting/export_use_cases.dart';
 export 'src/security/unlock_session.dart';
 export 'src/sync/sync_controller.dart';
 export 'src/sync/sync_setup.dart';
+export 'src/versions/enhance_asset.dart';
 export 'src/versions/version_use_cases.dart';

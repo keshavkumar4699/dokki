@@ -57,6 +57,7 @@ final class AppGraph {
     required this.updateEntryDetails,
     required this.deleteEntry,
     required this.commitEdit,
+    required this.enhance,
     required this.switchVersion,
     required this.thumbnails,
     required this.blobStore,
@@ -76,6 +77,10 @@ final class AppGraph {
   final UpdateEntryDetailsUseCase updateEntryDetails;
   final DeleteEntryUseCase deleteEntry;
   final CommitEditUseCase commitEdit;
+
+  /// Phase 8 edge detection + perspective correction. `null` when the
+  /// Dart imaging fallback is active (no native CV).
+  final EnhanceAssetUseCase? enhance;
   final SwitchCurrentVersionUseCase switchVersion;
   final ThumbnailProvider thumbnails;
 

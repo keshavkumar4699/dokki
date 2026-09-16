@@ -57,7 +57,7 @@ class SyncSection extends ConsumerWidget {
                 (_, _, final c) when c > 0 => '$c conflicts to review',
                 _ => lastCycle == null
                     ? 'Waiting for the first sync'
-                    : 'Up to date · last synced ${_relative(lastCycle)}',
+                    : 'Up to date · last synced ${_relative(lastCycle, ref.read(appGraphProvider).context.now())}',
               },
             ),
           ),
@@ -113,8 +113,8 @@ class SyncSection extends ConsumerWidget {
     ref.invalidate(syncAuthStateProvider);
   }
 
-  static String _relative(DateTime at) {
-    final age = DateTime.now().difference(at);
+  String _relative(DateTime at, DateTime now) {
+    final age = now.difference(at);
     if (age.inMinutes < 1) {
       return 'just now';
     }

@@ -48,7 +48,10 @@ final class GoogleDriveAuth {
       AccessToken(
         'Bearer',
         token,
-        DateTime.now().toUtc().add(const Duration(days: 365)),
+        // A far-future placeholder: the real refresh path is
+        // google_sign_in's `authentication` per call (§13.2: no wall
+        // clock outside the composition root).
+        DateTime.utc(2099),
       ),
       null, // google_sign_in refreshes on demand; no refresh token here
       const [scope],

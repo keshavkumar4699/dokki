@@ -229,13 +229,13 @@ final class FileBlobStore implements BlobStore {
     StorageClass storageClass = StorageClass.asset,
     required String expectedCiphertextSha256,
     CancellationToken? cancel,
-  }) => guardIo('writeSealed', blobId: id, () async {
+  }) {
     final relPath = BlobPaths.relPathFor(storageClass, id);
     final part = File(paths.partFile(relPath));
-    await part.parent.create(recursive: true);
-    final digest = _Sha256Sink();
-    var size = 0;
-    try {
+    return guardIo('writeSealed', blobId: id, () async {
+      await part.parent.create(recursive: true);
+      final digest = _Sha256Sink();
+      var size = 0;
       final sink = part.openWrite();
       try {
         await for (final chunk in ciphertext) {
@@ -258,11 +258,13 @@ final class FileBlobStore implements BlobStore {
       }
       await part.rename(paths.absolute(relPath));
       return (ciphertextSize: size, ciphertextSha256: hexDigest);
-    } catch (e) {
-      await _deleteQuietly(part);
-      rethrow;
-    }
-  });
+    }).then((result) async {
+      if (result.isErr) {
+        await _deleteQuietly(part);
+      }
+      return result;
+    });
+  }
 
   @override
   Future<Result<void, VaultFailure>> verify(BlobId id) =>

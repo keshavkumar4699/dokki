@@ -312,6 +312,11 @@ Future<AppBoot> composeBoot() async {
       final images = nativeImaging
           ? NativeImageProcessor(bridge: imagingBridge, files: sealedFiles)
           : DartImageProcessor(source: plaintext, blobStore: blobStore);
+      // Phase 8: the detector lives only behind the native pipeline; with
+      // the Dart fallback there is no CV, and the UI hides the action.
+      final edgeDetector = nativeImaging
+          ? EdgeDetectorImpl(bridge: imagingBridge, files: sealedFiles)
+          : null;
       final rasterEngine = nativeImaging
           ? NativeRasterEngine(bridge: imagingBridge, files: sealedFiles)
           : DartRasterEngine(source: plaintext);
@@ -420,6 +425,12 @@ Future<AppBoot> composeBoot() async {
           ),
           deleteEntry: DeleteEntryUseCase(context: context, entries: entries),
           commitEdit: CommitEditUseCase(versionServices),
+          enhance: edgeDetector == null
+              ? null
+              : EnhanceAssetUseCase(
+                  services: versionServices,
+                  detector: edgeDetector,
+                ),
           switchVersion: SwitchCurrentVersionUseCase(versionServices),
           thumbnails: thumbnails,
           blobStore: blobStore,

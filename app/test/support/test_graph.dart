@@ -69,6 +69,7 @@ final class TestGraph {
       ),
       deleteEntry: DeleteEntryUseCase(context: context, entries: repo),
       commitEdit: CommitEditUseCase(services),
+      enhance: null, // no native CV in widget tests
       switchVersion: SwitchCurrentVersionUseCase(services),
       thumbnails: FakeThumbnailProvider(),
       blobStore: store,

@@ -254,7 +254,27 @@ class ImagingChannel(session: KeySession) : WorkerChannel() {
         "encodeRaster" -> encodeRaster(call)
         "downscaleRaster" -> register(imaging.downscale(raster(call), call.argument<Double>("factor")!!))
         "disposeRaster" -> { dispose(call.int("rasterId")); null }
+        "detectDocument" -> detectDocument(call)
         else -> throw NotImplementedError()
+    }
+
+    /** §5.3: detection is separate from application — the quad it finds
+     * becomes a `PerspectiveOp` in the recipe, so upgrading the detector
+     * later never invalidates a stored recipe. */
+    private fun detectDocument(call: MethodCall): Map<String, Any?> {
+        val quad = imaging.detectQuad(
+            File(call.string("inputPath")),
+            call.int("purpose"),
+        ) ?: return mapOf("found" to false)
+        return mapOf(
+            "found" to true,
+            "quad" to mapOf(
+                "p0" to mapOf("x" to quad[0].toDouble(), "y" to quad[1].toDouble()),
+                "p1" to mapOf("x" to quad[2].toDouble(), "y" to quad[3].toDouble()),
+                "p2" to mapOf("x" to quad[4].toDouble(), "y" to quad[5].toDouble()),
+                "p3" to mapOf("x" to quad[6].toDouble(), "y" to quad[7].toDouble()),
+            ),
+        )
     }
 
     private fun inspect(call: MethodCall): Map<String, Any?> {

@@ -189,6 +189,32 @@ class NativeImaging(session: KeySession) {
 
     fun outputMime(mime: String): String = if (mime == "image/png") "image/png" else "image/jpeg"
 
+    // ── Edge detection (Phase 8, §5.3) ──────────────────────────────────────
+
+    /**
+     * Finds the document quad in a sealed image. Decodes small on purpose
+     * (≤ 1 MP: detection does not need pixels the user will never see),
+     * runs the hand-written detector, and returns corners normalised to
+     * 0..1 — or null when no confident quad exists (the caller falls back
+     * to manual corners).
+     */
+    fun detectQuad(sealed: File, purpose: Int): FloatArray? {
+        val decoded = decode(sealed, purpose, 1024 * 1024L, 4 * 1024 * 1024L)
+        val bitmap = decoded.bitmap
+        try {
+            val src = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(src, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            val quad = CvOps.detectDocumentQuad(src, bitmap.width, bitmap.height) ?: return null
+            // Pixels → normalised 0..1.
+            return FloatArray(8) { i ->
+                if (i % 2 == 0) quad.corners[i] / bitmap.width
+                else quad.corners[i] / bitmap.height
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     // ── Export rasters (RasterEngine) ───────────────────────────────────────
 
     class Raster(val bitmap: Bitmap, val sourceWidth: Int, val sourceHeight: Int, val background: Int)

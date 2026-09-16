@@ -38,6 +38,14 @@ abstract interface class ImagingBridge {
     required int purpose,
   });
 
+  /// Runs the document-quad detector (Phase 8). Returns a normalized quad
+  /// or null when no confident edge is found — the caller falls back to
+  /// manual corners (§5.3).
+  Future<DetectedQuad?> detectDocument({
+    required String inputPath,
+    required int purpose,
+  });
+
   Future<ProcessedImageResult> process({
     required String inputPath,
     required int purpose,
@@ -114,6 +122,31 @@ final class NativeImagingBridge implements ImagingBridge {
       }),
     );
     return InspectResult.fromJson(result!);
+  }
+
+  @override
+  Future<DetectedQuad?> detectDocument({
+    required String inputPath,
+    required int purpose,
+  }) async {
+    final result = await guardChannel(
+      () => _channel.invokeMapMethod<String, Object?>('detectDocument', {
+        'inputPath': inputPath,
+        'purpose': purpose,
+      }),
+    );
+    if (result == null || result['found'] != true) {
+      return null;
+    }
+    final quad = (result['quad']! as Map).cast<String, Object?>();
+    double px(String key, String axis) =>
+        ((quad[key]! as Map)[axis]! as num).toDouble();
+    return DetectedQuad(
+      x0: px('p0', 'x'), y0: px('p0', 'y'),
+      x1: px('p1', 'x'), y1: px('p1', 'y'),
+      x2: px('p2', 'x'), y2: px('p2', 'y'),
+      x3: px('p3', 'x'), y3: px('p3', 'y'),
+    );
   }
 
   @override
@@ -323,4 +356,28 @@ final class EncodedRasterResult {
   final Uint8List bytes;
   final int width;
   final int height;
+}
+
+/// A detected document quad, normalised 0..1, corners clockwise from the
+/// top-left (p0=TL, p1=TR, p2=BR, p3=BL).
+final class DetectedQuad {
+  const DetectedQuad({
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+    required this.x2,
+    required this.y2,
+    required this.x3,
+    required this.y3,
+  });
+
+  final double x0;
+  final double y0;
+  final double x1;
+  final double y1;
+  final double x2;
+  final double y2;
+  final double x3;
+  final double y3;
 }
