@@ -81,6 +81,25 @@ final class _MemoryStore implements BlobStore, BlobPlaintextSource {
   Future<Result<void, VaultFailure>> verify(BlobId id) async => const Ok(null);
 
   @override
+  Stream<List<int>>? ciphertextStream(BlobHandle handle) =>
+      Stream.value(blobs[handle.token]!);
+
+  @override
+  Future<Result<({int ciphertextSize, String ciphertextSha256}), VaultFailure>>
+  writeSealed(
+    BlobId id,
+    Stream<List<int>> ciphertext, {
+    StorageClass storageClass = StorageClass.asset,
+    required String expectedCiphertextSha256,
+    CancellationToken? cancel,
+  }) async {
+    final bytes = <int>[];
+    await ciphertext.forEach(bytes.addAll);
+    blobs[id] = Uint8List.fromList(bytes);
+    return Ok((ciphertextSize: bytes.length, ciphertextSha256: _fnv(bytes)));
+  }
+
+  @override
   Future<Result<void, VaultFailure>> evict(BlobId id) async => const Ok(null);
 
   @override

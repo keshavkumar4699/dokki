@@ -227,6 +227,24 @@ abstract interface class SyncStateRepository {
     required DateTime now,
   });
 
+  /// Enqueues a DOWNLOAD_BLOB op: a REMOTE_ONLY blob to fetch (§9.8).
+  Future<Result<void, VaultFailure>> enqueueDownloadBlob({
+    required BlobId blobId,
+    required String remoteName,
+    required String idempotencyKey,
+    required int priority,
+    required DateTime now,
+  });
+
+  /// Registers a fetched remote segment so [unappliedSegments] sees it
+  /// (§9.3). Idempotent by (deviceId, seq).
+  Future<Result<void, VaultFailure>> upsertRemoteSegment(
+    LogSegmentRecord segment,
+  );
+
+  /// Flips `blobs.local_state` to PRESENT after a verified download.
+  Future<Result<void, VaultFailure>> markBlobPresent(BlobId blobId);
+
   // ── Cloud objects ──────────────────────────────────────────────────────
 
   Future<Result<CloudObjectRecord?, VaultFailure>> findCloudObject(

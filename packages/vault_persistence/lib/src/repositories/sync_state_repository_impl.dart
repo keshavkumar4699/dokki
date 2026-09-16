@@ -548,10 +548,36 @@ final class SyncStateRepositoryImpl implements SyncStateRepository {
     () => _sync.deleteTombstoneRow(kind.dbValue, entityId),
   );
 
-  // ── Extra (not on the port; used by the sync engine via the concrete
-  //    type to register fetched remote segments before replay) ───────────
+  @override
+  Future<Result<void, VaultFailure>> enqueueDownloadBlob({
+    required BlobId blobId,
+    required String remoteName,
+    required String idempotencyKey,
+    required int priority,
+    required DateTime now,
+  }) => guardDb(
+    'enqueueDownloadBlob',
+    () => _sync.insertQueueRow(
+      SyncQueueCompanion.insert(
+        opType: SyncQueueOpType.downloadBlob.dbValue,
+        targetKind: 'BLOB',
+        targetId: blobId,
+        idempotencyKey: idempotencyKey,
+        priority: Value(priority),
+        nextAttemptAt: now,
+        createdAt: now,
+      ),
+    ),
+  );
+
+  @override
+  Future<Result<void, VaultFailure>> markBlobPresent(BlobId blobId) =>
+      guardDb('markBlobPresent', () => _versions.markBlobPresentRow(blobId));
+
+  // ── Remote segment registration ──────────────────────────────────────
 
   /// Inserts a remote segment row so [unappliedSegments] can see it.
+  @override
   Future<Result<void, VaultFailure>> upsertRemoteSegment(
     LogSegmentRecord segment,
   ) => guardDb(

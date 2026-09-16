@@ -143,6 +143,35 @@ final class InMemoryBlobStore implements BlobStore {
       blobs.containsKey(id) ? const Ok(null) : Err(CorruptFile(id));
 
   @override
+  Stream<List<int>>? ciphertextStream(BlobHandle handle) {
+    final bytes = blobs[handle.token];
+    return bytes == null ? null : Stream.value(bytes);
+  }
+
+  @override
+  Future<Result<({int ciphertextSize, String ciphertextSha256}), VaultFailure>>
+  writeSealed(
+    BlobId id,
+    Stream<List<int>> ciphertext, {
+    StorageClass storageClass = StorageClass.asset,
+    required String expectedCiphertextSha256,
+    CancellationToken? cancel,
+  }) async {
+    final bytes = <int>[];
+    await for (final chunk in ciphertext) {
+      cancel?.throwIfCancelled();
+      bytes.addAll(chunk);
+    }
+    final digest = fakeSha(bytes);
+    if (expectedCiphertextSha256.isNotEmpty &&
+        digest != expectedCiphertextSha256) {
+      return Err(RemoteObjectTampered(id));
+    }
+    blobs[id] = bytes;
+    return Ok((ciphertextSize: bytes.length, ciphertextSha256: digest));
+  }
+
+  @override
   Future<Result<void, VaultFailure>> evict(BlobId id) => purge(id);
 
   @override

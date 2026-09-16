@@ -35,6 +35,7 @@ export 'src/ports/key_epoch_repository.dart';
 export 'src/ports/key_manager.dart';
 export 'src/ports/pdf_composer.dart';
 export 'src/ports/raster_engine.dart';
+export 'src/ports/sync_apply_port.dart';
 export 'src/ports/sync_queue_port.dart';
 export 'src/ports/sync_state_repository.dart';
 export 'src/ports/thumbnail_index.dart';

@@ -16,6 +16,10 @@ class VersionsDao extends DatabaseAccessor<AppDatabase>
   Future<void> insertVersion(AssetVersionsCompanion companion) =>
       into(assetVersions).insert(companion);
 
+  /// Replay inserts are insert-or-ignore: a second pass is a no-op (P6).
+  Future<void> insertVersionOrIgnore(AssetVersionsCompanion companion) =>
+      into(assetVersions).insert(companion, mode: InsertMode.insertOrIgnore);
+
   Future<AssetVersionData?> versionById(String id) =>
       (select(assetVersions)..where((t) => t.id.equals(id))).getSingleOrNull();
 
@@ -61,6 +65,12 @@ class VersionsDao extends DatabaseAccessor<AppDatabase>
         const BlobsCompanion(localState: Value('EVICTED')),
       );
 
+  /// Flips a REMOTE_ONLY blob to PRESENT after a verified download (§9.8).
+  Future<void> markBlobPresentRow(String blobId) =>
+      (update(blobs)..where((t) => t.id.equals(blobId))).write(
+        const BlobsCompanion(localState: Value('PRESENT')),
+      );
+
   /// Soft-evicts rows; the CHECK constraint rejects ORIGINAL versions (I2).
   Future<void> evictVersionBlobs(List<String> versionIds, DateTime at) =>
       (update(assetVersions)..where((t) => t.id.isIn(versionIds))).write(
@@ -69,6 +79,10 @@ class VersionsDao extends DatabaseAccessor<AppDatabase>
 
   Future<void> insertBlob(BlobsCompanion companion) =>
       into(blobs).insert(companion);
+
+  /// Replay inserts are insert-or-ignore: a second pass is a no-op (P6).
+  Future<void> insertBlobOrIgnore(BlobsCompanion companion) =>
+      into(blobs).insert(companion, mode: InsertMode.insertOrIgnore);
 
   Future<BlobData?> blobById(String id) =>
       (select(blobs)..where((t) => t.id.equals(id))).getSingleOrNull();

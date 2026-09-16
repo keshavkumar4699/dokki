@@ -138,6 +138,29 @@ abstract interface class BlobStore {
   /// Verifies AEAD tags end-to-end without materialising plaintext.
   Future<Result<void, VaultFailure>> verify(BlobId id);
 
+  /// The SEALED bytes of a blob as a stream, for cloud upload (§9.2):
+  /// sync moves the exact bytes already on disk and never decrypts
+  /// anything, so it never needs a user-authenticated key. Returns null
+  /// when the implementation cannot stream ciphertext (in-memory fakes
+  /// that only hold plaintext).
+  Stream<List<int>>? ciphertextStream(BlobHandle handle);
+
+  /// Writes an already-sealed blob fetched from the cloud (§9.8): the
+  /// bytes stream to a `.part` file, the ciphertext SHA-256 is verified
+  /// against [expectedCiphertextSha256] (T12), and only then does the
+  /// file become visible under the real blob path. A mismatch fails with
+  /// [RemoteObjectTampered] and leaves nothing behind. The `blobs` row
+  /// already exists (replay registered it REMOTE_ONLY); this only places
+  /// the file and reports what landed.
+  Future<Result<({int ciphertextSize, String ciphertextSha256}), VaultFailure>>
+  writeSealed(
+    BlobId id,
+    Stream<List<int>> ciphertext, {
+    StorageClass storageClass = StorageClass.asset,
+    required String expectedCiphertextSha256,
+    CancellationToken? cancel,
+  });
+
   /// Rejects ORIGINAL-backed blobs (invariant I2) and pinned versions.
   Future<Result<void, VaultFailure>> evict(BlobId id);
 

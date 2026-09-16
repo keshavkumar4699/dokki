@@ -11,5 +11,6 @@ export 'src/error_boundary.dart';
 export 'src/export_request_codec.dart';
 export 'src/repositories/entry_repository_impl.dart';
 export 'src/repositories/key_epoch_repository_impl.dart';
+export 'src/repositories/sync_apply_repository_impl.dart';
 export 'src/repositories/sync_state_repository_impl.dart';
 export 'src/repositories/thumbnail_index_impl.dart';

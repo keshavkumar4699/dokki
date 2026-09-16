@@ -247,6 +247,10 @@ final class AddVersionOp extends SyncOp {
     required this.meta,
     required this.createdAtMillis,
     this.evictedAtMillis,
+    this.blobKeyEpoch,
+    this.blobWrappedDekBase64,
+    this.blobCiphertextSha256,
+    this.blobCiphertextSize,
   });
 
   @override
@@ -266,6 +270,16 @@ final class AddVersionOp extends SyncOp {
   final ImageMeta meta;
   final int createdAtMillis;
   final int? evictedAtMillis;
+
+  /// The blob-row fields a receiving device needs to register the blob as
+  /// REMOTE_ONLY before downloading it (§9.9): the FK from
+  /// `asset_versions.blob_id` demands the row exist, and the envelope
+  /// header travels inside the op because the file may not be fetched for
+  /// days. All present iff [blobId] is non-null.
+  final int? blobKeyEpoch;
+  final String? blobWrappedDekBase64;
+  final String? blobCiphertextSha256;
+  final int? blobCiphertextSize;
 
   @override
   Map<String, Object?> toJson() => {
@@ -287,6 +301,10 @@ final class AddVersionOp extends SyncOp {
     },
     'createdAtMillis': createdAtMillis,
     'evictedAtMillis': evictedAtMillis,
+    'blobKeyEpoch': blobKeyEpoch,
+    'blobWrappedDekBase64': blobWrappedDekBase64,
+    'blobCiphertextSha256': blobCiphertextSha256,
+    'blobCiphertextSize': blobCiphertextSize,
   };
 
   static AddVersionOp fromJson(
@@ -318,6 +336,10 @@ final class AddVersionOp extends SyncOp {
       ),
       createdAtMillis: (json['createdAtMillis'] as num).toInt(),
       evictedAtMillis: (json['evictedAtMillis'] as num?)?.toInt(),
+      blobKeyEpoch: (json['blobKeyEpoch'] as num?)?.toInt(),
+      blobWrappedDekBase64: json['blobWrappedDekBase64'] as String?,
+      blobCiphertextSha256: json['blobCiphertextSha256'] as String?,
+      blobCiphertextSize: (json['blobCiphertextSize'] as num?)?.toInt(),
     );
   }
 }

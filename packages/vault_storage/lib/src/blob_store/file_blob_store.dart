@@ -206,6 +206,64 @@ final class FileBlobStore implements BlobStore {
     return written;
   });
 
+  /// The sealed bytes as stored on disk — the cloud upload path moves
+  /// these verbatim (§9.2 "sync never decrypts anything").
+  @override
+  Stream<List<int>>? ciphertextStream(BlobHandle handle) {
+    final located = handle is FileBlobHandle ? handle : null;
+    if (located == null) {
+      return null;
+    }
+    return File(paths.absolute(located.relPath)).openRead();
+  }
+
+  /// §9.8 download path: stream to `.part`, verify the ciphertext hash,
+  /// rename. A partially downloaded file is never visible under a real
+  /// blob path, so an interrupted download is never mistaken for a
+  /// corrupt blob.
+  @override
+  Future<Result<({int ciphertextSize, String ciphertextSha256}), VaultFailure>>
+  writeSealed(
+    BlobId id,
+    Stream<List<int>> ciphertext, {
+    StorageClass storageClass = StorageClass.asset,
+    required String expectedCiphertextSha256,
+    CancellationToken? cancel,
+  }) => guardIo('writeSealed', blobId: id, () async {
+    final relPath = BlobPaths.relPathFor(storageClass, id);
+    final part = File(paths.partFile(relPath));
+    await part.parent.create(recursive: true);
+    final digest = _Sha256Sink();
+    var size = 0;
+    try {
+      final sink = part.openWrite();
+      try {
+        await for (final chunk in ciphertext) {
+          cancel?.throwIfCancelled();
+          digest.add(chunk);
+          size += chunk.length;
+          sink.add(chunk);
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      final hexDigest = digest.hexDigest();
+      // An empty expectation means the caller cannot know the hash yet
+      // (a peer-written segment); the AEAD verification at open time is
+      // then the authoritative integrity check (T12).
+      if (expectedCiphertextSha256.isNotEmpty &&
+          hexDigest != expectedCiphertextSha256.toLowerCase()) {
+        throw StorageException(RemoteObjectTampered(id));
+      }
+      await part.rename(paths.absolute(relPath));
+      return (ciphertextSize: size, ciphertextSha256: hexDigest);
+    } catch (e) {
+      await _deleteQuietly(part);
+      rethrow;
+    }
+  });
+
   @override
   Future<Result<void, VaultFailure>> verify(BlobId id) =>
       guardIo('verify', blobId: id, () async {

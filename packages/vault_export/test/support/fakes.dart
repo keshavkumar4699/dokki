@@ -164,6 +164,28 @@ final class MemBlobStore implements BlobStore {
   Future<Result<void, VaultFailure>> verify(BlobId id) async => const Ok(null);
 
   @override
+  Stream<List<int>>? ciphertextStream(BlobHandle handle) {
+    final bytes = blobs[handle.token];
+    return bytes == null ? null : Stream.value(bytes);
+  }
+
+  @override
+  Future<Result<({int ciphertextSize, String ciphertextSha256}), VaultFailure>>
+  writeSealed(
+    BlobId id,
+    Stream<List<int>> ciphertext, {
+    StorageClass storageClass = StorageClass.asset,
+    required String expectedCiphertextSha256,
+    CancellationToken? cancel,
+  }) async {
+    final bytes = <int>[];
+    await ciphertext.forEach(bytes.addAll);
+    blobs[id] = bytes;
+    classes[id] = storageClass;
+    return Ok((ciphertextSize: bytes.length, ciphertextSha256: 'ab' * 32));
+  }
+
+  @override
   Future<Result<void, VaultFailure>> evict(BlobId id) => purge(id);
 
   @override
