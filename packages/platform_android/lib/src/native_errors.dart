@@ -47,6 +47,36 @@ final class NativeLocked extends NativeFailure {
   const NativeLocked() : super('LOCKED');
 }
 
+/// A sealed file that is not a well-formed envelope (or the wrong purpose).
+final class NativeEnvelopeFormat extends NativeFailure {
+  const NativeEnvelopeFormat() : super('ENVELOPE_FORMAT');
+}
+
+/// The decoder could not read the image bytes.
+final class NativeUnsupportedFormat extends NativeFailure {
+  const NativeUnsupportedFormat() : super('UNSUPPORTED_FORMAT');
+}
+
+/// The source exceeds the decode ceiling even when subsampled (R2).
+final class NativeDecodeTooLarge extends NativeFailure {
+  const NativeDecodeTooLarge() : super('DECODE_TOO_LARGE');
+}
+
+/// An `ImageOp` the native pipeline cannot run (Phase 8 CV ops).
+final class NativeUnsupportedOp extends NativeFailure {
+  const NativeUnsupportedOp() : super('UNSUPPORTED_OP');
+}
+
+/// The native heap could not hold the bitmap.
+final class NativeOutOfMemory extends NativeFailure {
+  const NativeOutOfMemory() : super('OUT_OF_MEMORY');
+}
+
+/// A native file read or write failed.
+final class NativeStorageIo extends NativeFailure {
+  const NativeStorageIo() : super('STORAGE_IO');
+}
+
 /// Generic native failure carrying the platform code.
 final class NativeGenericFailure extends NativeFailure {
   const NativeGenericFailure(super.code);

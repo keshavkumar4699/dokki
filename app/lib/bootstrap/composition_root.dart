@@ -87,6 +87,64 @@ final class _PlaintextAdapter implements BlobPlaintextSource {
       _store.openPlaintext(handle);
 }
 
+/// Adapts the file store's layout to the native pipeline's seam: Kotlin
+/// reads sealed files by path and writes sealed `.part` files that are
+/// committed here with the same atomic rename the Dart write path uses.
+final class _SealedFilesAdapter implements SealedBlobFiles {
+  const _SealedFilesAdapter(this._store);
+
+  final FileBlobStore _store;
+
+  @override
+  Future<SealedInput> resolve(BlobHandle handle) async {
+    if (handle is! FileBlobHandle) {
+      throw ArgumentError('Not a FileBlobHandle');
+    }
+    return SealedInput(
+      path: _store.paths.absolute(handle.relPath),
+      purpose: BlobPaths.purposeFor(handle.storageClass).byte,
+    );
+  }
+
+  @override
+  Future<PendingSealedBlob> allocate(StorageClass storageClass) async {
+    final id = _store.ids.newBlobId();
+    final relPath = BlobPaths.relPathFor(storageClass, id);
+    return PendingSealedBlob(
+      id: id,
+      storageClass: storageClass,
+      relPath: relPath,
+      partPath: _store.paths.partFile(relPath),
+      purpose: BlobPaths.purposeFor(storageClass).byte,
+      keyEpoch: _store.activeKeyEpoch(),
+    );
+  }
+
+  @override
+  Future<BlobRef> commit(PendingSealedBlob pending, SealedFileInfo info) async {
+    await File(pending.partPath).rename(_store.paths.absolute(pending.relPath));
+    return BlobRef(
+      id: pending.id,
+      storageClass: pending.storageClass,
+      relPath: pending.relPath,
+      keyEpoch: info.keyEpoch,
+      wrappedDek: info.wrappedDek,
+      plaintextSize: info.plaintextSize,
+      ciphertextSize: info.ciphertextSize,
+      ciphertextSha256: info.ciphertextSha256,
+      plaintextSha256: info.plaintextSha256,
+    );
+  }
+
+  @override
+  Future<void> abandon(PendingSealedBlob pending) async {
+    final part = File(pending.partPath);
+    if (part.existsSync()) {
+      await part.delete();
+    }
+  }
+}
+
 /// Stage 1. Called once from `main()`.
 Future<AppBoot> composeBoot() async {
   const clock = _SystemClock();
@@ -124,6 +182,11 @@ Future<AppBoot> composeBoot() async {
   final KeyManager keyManager;
   final EnvelopePrimitive primitive;
   final CryptoBackend backend;
+  // The native image pipeline needs the native key session (it decrypts
+  // sealed files itself), so it follows the key backend.
+  const imagingBridge = NativeImagingBridge();
+  final nativeImaging =
+      wantsNative && nativeAvailable && await imagingBridge.isAvailable();
   if (wantsNative && nativeAvailable) {
     final native = KeyManagerImpl(
       bridge: nativeBridge,
@@ -203,10 +266,14 @@ Future<AppBoot> composeBoot() async {
         activeKeyEpoch: activeEpoch,
       );
       await blobStore.sweepPartialWrites();
-      final images = DartImageProcessor(
-        source: _PlaintextAdapter(blobStore),
-        blobStore: blobStore,
-      );
+      final plaintext = _PlaintextAdapter(blobStore);
+      final sealedFiles = _SealedFilesAdapter(blobStore);
+      final images = nativeImaging
+          ? NativeImageProcessor(bridge: imagingBridge, files: sealedFiles)
+          : DartImageProcessor(source: plaintext, blobStore: blobStore);
+      final rasterEngine = nativeImaging
+          ? NativeRasterEngine(bridge: imagingBridge, files: sealedFiles)
+          : DartRasterEngine(source: plaintext);
       final thumbnails = ThumbnailCache(
         index: ThumbnailIndexImpl(database),
         entries: entries,
@@ -233,13 +300,12 @@ Future<AppBoot> composeBoot() async {
         images: images,
         thumbnails: thumbnails,
       );
-      final plaintext = _PlaintextAdapter(blobStore);
       final exports = ExportUseCases(
         context: context,
         engine: ExportEngineImpl(
           entries: entries,
           blobStore: blobStore,
-          raster: DartRasterEngine(source: plaintext),
+          raster: rasterEngine,
           resolver: ExportSourceResolverImpl(
             entries: entries,
             rematerialize: RematerializeVersionUseCase(versionServices),
@@ -285,14 +351,16 @@ Future<AppBoot> composeBoot() async {
         // A neutral name: the receiving app sees no title or path.
         final fileName = 'dokki-${exportId.substring(0, 8)}.$extension';
         final path = shareCache.pathFor(fileName);
-        return blobStore.copyPlaintextTo(artifact, path).map(
-          (_) => ShareHandle(
-            path: path,
-            mimeType: mime,
-            fileName: fileName,
-            discard: () async => shareCache.discard(path),
-          ),
-        );
+        return blobStore
+            .copyPlaintextTo(artifact, path)
+            .map(
+              (_) => ShareHandle(
+                path: path,
+                mimeType: mime,
+                fileName: fileName,
+                discard: () async => shareCache.discard(path),
+              ),
+            );
       });
 
       return Ok(

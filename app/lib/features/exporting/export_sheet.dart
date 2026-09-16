@@ -81,11 +81,8 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
   }
 
   List<ExportPreset> _pdfPresets(VaultEntry entry) => [
-    for (final preset in ref
-        .read(appGraphProvider)
-        .exports
-        .presets
-        .forType(entry.type))
+    for (final preset
+        in ref.read(appGraphProvider).exports.presets.forType(entry.type))
       if (_isPdfPreset(entry, preset.id)) preset,
   ];
 
@@ -100,7 +97,10 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
     if (entry == null || !_multi || _scope == _Scope.visible) {
       return presets;
     }
-    return [for (final preset in presets) if (_isPdfPreset(entry, preset.id)) preset];
+    return [
+      for (final preset in presets)
+        if (_isPdfPreset(entry, preset.id)) preset,
+    ];
   }
 
   ExportContext _exportContext(VaultEntry entry) => ExportContext(
@@ -314,7 +314,9 @@ class _ScopeChips extends StatelessWidget {
       AssetRole.idBack => 'Back only',
       _ => 'This page',
     };
-    final all = entry.type == EntryType.id ? 'Both sides (PDF)' : 'All pages (PDF)';
+    final all = entry.type == EntryType.id
+        ? 'Both sides (PDF)'
+        : 'All pages (PDF)';
     return Wrap(
       spacing: DokkiSpace.sm,
       children: [

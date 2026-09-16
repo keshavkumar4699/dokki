@@ -21,6 +21,13 @@ class KeySession {
     private val deks = HashMap<Int, ByteArray>()
     private var nextKeyId = 1
     private var activeEpoch: Int? = null
+    private val lockListeners = ArrayList<() -> Unit>()
+
+    /** Runs [listener] after every [lock], for holders of derived plaintext (rasters). */
+    @Synchronized
+    fun onLock(listener: () -> Unit) {
+        lockListeners.add(listener)
+    }
 
     val isUnlocked: Boolean
         @Synchronized get() = masterKeys.isNotEmpty()
@@ -43,13 +50,17 @@ class KeySession {
     }
 
     /** Zeroes and drops every key. Best effort against JVM copies (§8.4). */
-    @Synchronized
     fun lock() {
-        masterKeys.values.forEach { it.fill(0) }
-        masterKeys.clear()
-        deks.values.forEach { it.fill(0) }
-        deks.clear()
-        activeEpoch = null
+        val listeners: List<() -> Unit>
+        synchronized(this) {
+            masterKeys.values.forEach { it.fill(0) }
+            masterKeys.clear()
+            deks.values.forEach { it.fill(0) }
+            deks.clear()
+            activeEpoch = null
+            listeners = lockListeners.toList()
+        }
+        listeners.forEach { it() }
     }
 
     // ── Purpose keys and DEKs ───────────────────────────────────────────────

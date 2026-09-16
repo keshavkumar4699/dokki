@@ -26,16 +26,17 @@ import io.flutter.plugin.common.MethodChannel.Result
  *  - `dokki/vault_security`  — FLAG_SECURE, device-lock probe, root signals.
  *  - `dokki/vault_keymanager` — Keystore-bound master key wrapping (§8).
  *  - `dokki/vault_crypto`     — per-chunk AES-GCM over session-held DEKs (§7.2).
- *  - `dokki/vault_imaging`    — declared by Dart; the native BitmapFactory
- *    pipeline (Phase 4) is not yet present, so it answers `notImplemented`
- *    and the Dart reference processor is used.
+ *  - `dokki/vault_imaging`    — the native image pipeline (§17 Phase 4):
+ *    sealed file in, sealed file out, bitmaps only in native memory.
  */
 class PlatformAndroidPlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
     private lateinit var securityChannel: MethodChannel
     private lateinit var keyManagerChannel: MethodChannel
     private lateinit var cryptoChannel: MethodChannel
+    private lateinit var imagingChannel: MethodChannel
     private var keyManagerHandler: KeyManagerChannel? = null
     private var cryptoHandler: CryptoChannel? = null
+    private var imagingHandler: ImagingChannel? = null
     private var context: Context? = null
     private var activity: Activity? = null
 
@@ -55,14 +56,19 @@ class PlatformAndroidPlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
         cryptoHandler = CryptoChannel(session)
         cryptoChannel = MethodChannel(binding.binaryMessenger, "dokki/vault_crypto")
         cryptoChannel.setMethodCallHandler(cryptoHandler)
+        imagingHandler = ImagingChannel(session)
+        imagingChannel = MethodChannel(binding.binaryMessenger, "dokki/vault_imaging")
+        imagingChannel.setMethodCallHandler(imagingHandler)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         securityChannel.setMethodCallHandler(null)
         keyManagerChannel.setMethodCallHandler(null)
         cryptoChannel.setMethodCallHandler(null)
+        imagingChannel.setMethodCallHandler(null)
         keyManagerHandler?.shutdown()
         cryptoHandler?.shutdown()
+        imagingHandler?.shutdown()
         session.lock()
         context = null
     }

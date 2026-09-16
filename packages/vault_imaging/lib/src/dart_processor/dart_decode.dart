@@ -60,7 +60,10 @@ DecodedSource decodeImageBytes(
   if (image == null) {
     throw const ImagingException(UnsupportedFormat('undecodable'));
   }
-  return DecodedSource(image: img.bakeOrientation(image), mime: mimeOf(decoder));
+  return DecodedSource(
+    image: img.bakeOrientation(image),
+    mime: mimeOf(decoder),
+  );
 }
 
 String mimeOf(img.Decoder decoder) => switch (decoder) {
@@ -141,11 +144,8 @@ img.Image resizeToFit(
   }
 }
 
-img.Color colorFromArgb(int argb) => img.ColorRgb8(
-  (argb >> 16) & 0xFF,
-  (argb >> 8) & 0xFF,
-  argb & 0xFF,
-);
+img.Color colorFromArgb(int argb) =>
+    img.ColorRgb8((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
 
 double _min(double a, double b) => a < b ? a : b;
 

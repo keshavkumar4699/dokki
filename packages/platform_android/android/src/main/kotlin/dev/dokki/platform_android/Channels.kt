@@ -3,8 +3,14 @@ package dev.dokki.platform_android
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import dev.dokki.platform_android.crypto.EnvelopeFormatException
+import dev.dokki.platform_android.crypto.EnvelopePurposeMismatch
 import dev.dokki.platform_android.crypto.Primitives
 import dev.dokki.platform_android.crypto.TagVerificationFailed
+import dev.dokki.platform_android.imaging.DecodeTooLargeException
+import dev.dokki.platform_android.imaging.NativeImaging
+import dev.dokki.platform_android.imaging.UndecodableImageException
+import dev.dokki.platform_android.imaging.UnsupportedOpException
 import dev.dokki.platform_android.keystore.AuthFailedException
 import dev.dokki.platform_android.keystore.KeyInvalidatedException
 import dev.dokki.platform_android.keystore.KeySession
@@ -17,6 +23,7 @@ import dev.dokki.platform_android.keystore.UserAuthGate
 import dev.dokki.platform_android.keystore.UserCancelledException
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 import java.util.concurrent.Executors
 
 /**
@@ -53,6 +60,12 @@ abstract class WorkerChannel : MethodChannel.MethodCallHandler {
         is NoDeviceLockException -> "NO_DEVICE_LOCK"
         is UserCancelledException, is NoActivityException -> "USER_CANCELLED"
         is LockedException -> "LOCKED"
+        is EnvelopeFormatException, is EnvelopePurposeMismatch -> "ENVELOPE_FORMAT"
+        is UndecodableImageException -> "UNSUPPORTED_FORMAT"
+        is DecodeTooLargeException -> "DECODE_TOO_LARGE"
+        is UnsupportedOpException -> "UNSUPPORTED_OP"
+        is OutOfMemoryError -> "OUT_OF_MEMORY"
+        is java.io.IOException -> "STORAGE_IO"
         else -> "NATIVE_${e::class.java.simpleName.uppercase()}"
     }
 
@@ -216,4 +229,119 @@ class CryptoChannel(private val session: KeySession) : WorkerChannel() {
         "releaseKey" -> { session.release(call.int("keyId")); null }
         else -> throw NotImplementedError()
     }
+}
+
+/**
+ * `dokki/vault_imaging` — see the Dart `NativeImagingBridge` for the protocol.
+ * Rasters (export bitmaps) live in [rasters] between calls and are dropped
+ * on lock, since they are plaintext pixels.
+ */
+class ImagingChannel(session: KeySession) : WorkerChannel() {
+    private val imaging = NativeImaging(session)
+    private val rasters = HashMap<Int, NativeImaging.Raster>()
+    private var nextRasterId = 1
+
+    init {
+        session.onLock { clearRasters() }
+    }
+
+    override fun handle(call: MethodCall): Any? = when (call.method) {
+        "ping" -> true
+        "inspect" -> inspect(call)
+        "process" -> process(call)
+        "prepareRaster" -> prepareRaster(call)
+        "measureRaster" -> imaging.measure(raster(call), call.string("format"), call.int("quality"))
+        "encodeRaster" -> encodeRaster(call)
+        "downscaleRaster" -> register(imaging.downscale(raster(call), call.argument<Double>("factor")!!))
+        "disposeRaster" -> { dispose(call.int("rasterId")); null }
+        else -> throw NotImplementedError()
+    }
+
+    private fun inspect(call: MethodCall): Map<String, Any?> {
+        val info = imaging.inspect(File(call.string("inputPath")), call.int("purpose"))
+        return mapOf("width" to info.width, "height" to info.height, "mime" to info.mime)
+    }
+
+    private fun process(call: MethodCall): Map<String, Any?> {
+        val processed = imaging.process(
+            input = File(call.string("inputPath")),
+            inputPurpose = call.int("purpose"),
+            output = File(call.string("outputPath")),
+            outputPurpose = call.int("outputPurpose"),
+            epoch = call.int("epoch"),
+            opsJson = call.string("opsJson"),
+            decodeTargetPixels = call.long("decodeTargetPixels"),
+            maxDecodedPixels = call.long("maxDecodedPixels"),
+            maxEdge = call.argument<Int>("maxEdge") ?: 0,
+            preferredMime = call.argument<String>("preferredMime"),
+            quality = call.int("quality"),
+        )
+        val sealed = processed.sealed
+        return mapOf(
+            "width" to processed.width,
+            "height" to processed.height,
+            "mime" to processed.mime,
+            "keyEpoch" to sealed.keyEpoch,
+            "wrappedDek" to sealed.wrappedDek.b64(),
+            "plaintextSize" to sealed.plaintextSize,
+            "ciphertextSize" to sealed.ciphertextSize,
+            "plaintextSha256" to sealed.plaintextSha256,
+            "ciphertextSha256" to sealed.ciphertextSha256,
+        )
+    }
+
+    private fun prepareRaster(call: MethodCall): Map<String, Any?> {
+        val raster = imaging.prepareRaster(
+            input = File(call.string("inputPath")),
+            purpose = call.int("purpose"),
+            width = call.argument<Int>("width"),
+            height = call.argument<Int>("height"),
+            fit = call.argument<String>("fit") ?: "contain",
+            grayscale = call.argument<Boolean>("grayscale") ?: false,
+            bw = call.argument<Boolean>("bw") ?: false,
+            background = call.argument<Number>("background")?.toLong()?.toInt(),
+            maxDecodedPixels = call.long("maxDecodedPixels"),
+        )
+        return register(raster)
+    }
+
+    private fun encodeRaster(call: MethodCall): Map<String, Any?> {
+        val raster = raster(call)
+        val bytes = imaging.encode(raster.bitmap, call.string("format"), call.int("quality"))
+        return mapOf(
+            "bytes" to bytes,
+            "width" to raster.bitmap.width,
+            "height" to raster.bitmap.height,
+        )
+    }
+
+    @Synchronized
+    private fun register(raster: NativeImaging.Raster): Map<String, Any?> {
+        val id = nextRasterId++
+        rasters[id] = raster
+        return mapOf(
+            "rasterId" to id,
+            "width" to raster.bitmap.width,
+            "height" to raster.bitmap.height,
+            "sourceWidth" to raster.sourceWidth,
+            "sourceHeight" to raster.sourceHeight,
+        )
+    }
+
+    @Synchronized
+    private fun raster(call: MethodCall): NativeImaging.Raster =
+        rasters[call.int("rasterId")] ?: throw IllegalArgumentException("unknown raster")
+
+    @Synchronized
+    private fun dispose(id: Int) {
+        rasters.remove(id)?.bitmap?.recycle()
+    }
+
+    @Synchronized
+    fun clearRasters() {
+        rasters.values.forEach { it.bitmap.recycle() }
+        rasters.clear()
+    }
+
+    private fun MethodCall.long(key: String): Long = (argument<Number>(key)!!).toLong()
 }

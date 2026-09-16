@@ -10,7 +10,7 @@ A privacy-focused document vault for `PHOTO`, `ID`, `SIGNATURE`, `THUMBPRINT`, a
 
 ## Status
 
-Phases 0–3, 5 and 6 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path; Phase 4 is covered by the Dart reference image pipeline:
+Phases 0–6 of §17 are implemented and running end to end on Android, Phase 2 with the real Keystore path and Phase 4 with the real native image pipeline:
 
 | Layer | State |
 |---|---|
@@ -18,9 +18,9 @@ Phases 0–3, 5 and 6 of §17 are implemented and running end to end on Android,
 | `vault_persistence` | Complete schema (§6) over Drift; partial unique indexes and I3 triggers; `EntryRepository`, `KeyEpochRepository`, `SyncStateRepository`, `ThumbnailIndex`. 28 DB tests incl. constraint rejections. |
 | `vault_crypto` | Envelope v1 cipher (STREAM framing, tamper matrix), `CryptoEngine`, `KeyManagerImpl` over the Keystore bridge, plus the dev-only `DartKeyManager`/`DartEnvelopePrimitive` fallback. 36 tests. |
 | `vault_storage` | `FileBlobStore` (atomic `.part`→rename, fan-out layout, sealed), `KeyringFile` (§7.1, the pre-unlock keyring), `ThumbnailCache` (S/M/L, LRU budget). 16 tests. |
-| `vault_imaging` | `DartImageProcessor` over `package:image` (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). 11 tests. |
+| `vault_imaging` | `NativeImageProcessor` + `NativeRasterEngine` over the Kotlin pipeline (sealed in, sealed out; bitmaps stay native), with `DartImageProcessor`/`DartRasterEngine` as fallback and test oracle (crop/rotate/resize/tone/filters, normalised coordinates, deterministic re-materialization). 21 tests. |
 | `vault_app_core` | `UnlockSession` (auto-lock), create/add/reorder/delete, `CommitEdit` (retention + post-commit purge), switch/re-materialize versions. 32 tests. |
-| `platform_android` | Kotlin: Keystore-bound KEK (StrongBox → TEE fallback, auth-bound), Argon2id (argon2kt), HKDF, per-chunk AES-256-GCM session, BiometricPrompt device-credential gate, `FLAG_SECURE`, device-lock probe. **The native imaging channel is still `notImplemented`** (Dart reference processor is used). |
+| `platform_android` | Kotlin: Keystore-bound KEK (StrongBox → TEE fallback, auth-bound), Argon2id (argon2kt), HKDF, per-chunk AES-256-GCM session, BiometricPrompt device-credential gate, `FLAG_SECURE`, device-lock probe. Image pipeline (`dokki/vault_imaging`): streaming envelope decrypt → `inSampleSize` decode → EXIF bake → op pipeline → encode → streaming envelope seal, plus a native raster registry for the export size solver; rasters are dropped on lock. |
 | `vault_export` | `ExportEngineImpl` (§11.3: validate → resolve → raster/pdf → size-solve → encode/compose → seal → record), `LayoutEngine`, `SizeSolver` (quality search + downscale rounds, `maxBytes` hard / `targetBytes` best-effort; the PDF path searches JPEG quality then effective DPI), quick/configured/Export-Again use cases, artifact retention + expiry GC, four built-in presets. 43 tests. |
 | `vault_pdf` | `PdfComposerImpl` over `package:pdf`: exact mm placement from `PlacedCell`s, per-image decode → effective-DPI downsample → colour → JPEG at the probed quality, zero `/Info` metadata. 13 tests. |
 | `app` | Onboarding (PIN + mandatory recovery passphrase), lock gate, vault grid with type filters and search, add via camera/gallery, entry detail (pages/sides, rotate, history, add page/back, delete), export sheet with presets + "all pages (PDF)" scope + history + share (neutral filenames), settings. Motion system (`core_ui/motion.dart`): staggered entrances, press feedback, fade-through gate transitions, hero cover grid→detail, optimistic rotate preview, PIN "verifying" wave; honours the OS reduce-motion setting. Adaptive vector launcher icon and matching splash. 4 widget tests. |
@@ -35,6 +35,8 @@ The keyring (wrapped keys + KDF parameters) lives in `files/vault/keyring/keyrin
 If the Kotlin channel is unavailable (tests, a host without the plugin), the composition root falls back to the dev-only `DartKeyManager` (PIN-derived key in software — architecture mistake M1) and Settings shows a red "Development build: software keys" card. A vault created under one backend is not opened by the other; `wrap_alg` records which one made it. Screenshots are blocked by `FLAG_SECURE` always; debug builds can allow capture for UI review with `adb shell settings put global dokki_allow_capture 1`.
 
 Deviation from §8.3: the Keystore key is auth-bound with a 30 s validity window rather than per-use (`setUserAuthenticationParameters(0, …)`), so one device-credential prompt covers unwrapping every epoch; both factors remain mandatory.
+
+The composition root probes `dokki/vault_imaging` at boot and falls back to the Dart reference pipeline when the plugin is absent (tests, non-Android hosts); both backends implement the same ports, so callers cannot tell which ran.
 
 ### Deviations from ARCHITECTURE.md
 

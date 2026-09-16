@@ -25,5 +25,11 @@ NativeFailure _translate(PlatformException e) => switch (e.code) {
   'AUTH_FAILED' => const NativeAuthFailed(),
   'USER_CANCELLED' => const NativeUserCancelled(),
   'LOCKED' => const NativeLocked(),
+  'ENVELOPE_FORMAT' => const NativeEnvelopeFormat(),
+  'UNSUPPORTED_FORMAT' => const NativeUnsupportedFormat(),
+  'DECODE_TOO_LARGE' => const NativeDecodeTooLarge(),
+  'UNSUPPORTED_OP' => const NativeUnsupportedOp(),
+  'OUT_OF_MEMORY' => const NativeOutOfMemory(),
+  'STORAGE_IO' => const NativeStorageIo(),
   _ => NativeGenericFailure(e.code),
 };
